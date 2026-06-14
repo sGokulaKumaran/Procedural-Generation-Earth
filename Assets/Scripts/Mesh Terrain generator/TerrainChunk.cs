@@ -1,162 +1,99 @@
-// ============================================================
-//  TerrainChunk.cs  (v2)
-//
-//  State machine:
-//    Idle → Generating → Ready → Active
-//                              → Sleeping  (out of view range, mesh kept)
-//                              → Recycled  (returned to pool, mesh cleared)
-//
-//  Key improvements vs v1:
-//   - Chunk keeps its mesh when it transitions to Sleeping.
-//     Only fully-out-of-range chunks (beyond unload distance) get recycled.
-//     This is what prevents pop-in when the player backtracks.
-//   - Thread result is checked with volatile bool (not null check) to avoid
-//     C# memory model races across threads.
-//   - VegetationPlacer is called once after mesh is applied.
-//   - LOD level is set by TerrainManager; chunk just stores it.
-// ============================================================
+using System.Collections.Generic;
 using System.Threading;
 using UnityEngine;
-
-public enum ChunkState { Idle, Generating, Ready, Active, Sleeping }
 
 [RequireComponent(typeof(MeshFilter))]
 [RequireComponent(typeof(MeshRenderer))]
 public class TerrainChunk : MonoBehaviour
 {
-    // ── Assigned by TerrainManager ──────────────────────────
-    public Material       material;
-    public Vector2        position;
-    public Vector2Int     coord;
-    public int            chunkSize      = 257;
-    public int            chunkWorldSize = 256;
-    public VegetationPlacer vegPlacer;
+    public Material material;
+    public Vector2 position;
+    public int chunkSize = 256;
+    public int chunkWorldSize = 256;
 
-    // ── Terrain params (forwarded to generator) ─────────────
-    public float baseFrequency, persistence, lacunarity, heightMult, exponent;
-    public float mountainBlend, mountainFreq;
-    public float riverFrequency, riverWidth, riverDepth, bankWidth, bankFlatness;
-    public float valleyFrequency, valleyDepth;
-    public float offsetX, offsetZ;
-    public int   octaves;
-    public float vegDensity = 0.04f;
+    // ── Neighbors used for seamless stitching ──
+    public TerrainChunk neighborXPos;
+    public TerrainChunk neighborXNeg;
+    public TerrainChunk neighborZPos;
+    public TerrainChunk neighborZNeg;
 
-    // ── Neighbor refs for seam stitching (future use) ───────
-    public TerrainChunk neighborXPos, neighborXNeg, neighborZPos, neighborZNeg;
+    public float baseFrequency = 0.0018f;
+    public int octaves = 7;
+    public float persistence = 0.48f;
+    public float lacunarity = 2.1f;
+    public float heightMult = 120f;
+    public float exponent = 1.6f;
+    public float mountainBlend = 0.55f;
+    public float mountainFreq = 0.0022f;
+    public float riverFrequency = 0.00045f;
+    public float riverWidth = 0.045f;
+    public float riverDepth = 12f;
+    public float bankWidth = 0.09f;
+    public float bankFlatness = 0.60f;
+    public float valleyFrequency = 0.0008f;
+    public float valleyDepth = 0.35f;
 
-    // ── State ────────────────────────────────────────────────
-    public ChunkState State { get; private set; } = ChunkState.Idle;
+    public float offsetX = 0f;
+    public float offsetZ = 0f;
 
-    private TerrainGeneratorThreaded _gen;
-    private bool _vegetationPlaced = false;
+    private List<TerrainGeneratorThreaded> activeThreads = new List<TerrainGeneratorThreaded>();
 
-    // ─────────────────────────────────────────────────────────
-    public void StartGeneration()
+    // Called by TerrainManager
+    public void StartThreadedGeneration()
     {
-        if (State == ChunkState.Generating) return;
+        TerrainGeneratorThreaded gen = new TerrainGeneratorThreaded();
+        gen.position = position;
+        gen.chunkSize = chunkSize;
+        gen.chunkWorldSize = chunkWorldSize;
+        gen.baseFrequency = baseFrequency;
+        gen.persistence = persistence;
+        gen.lacunarity = lacunarity;
+        gen.heightMult = heightMult;
+        gen.exponent = exponent;
+        gen.mountainBlend = mountainBlend;
+        gen.mountainFreq = mountainFreq;
+        gen.riverFrequency = riverFrequency;
+        gen.riverWidth = riverWidth;
+        gen.riverDepth = riverDepth;
+        gen.bankWidth = bankWidth;
+        gen.bankFlatness = bankFlatness;
+        gen.valleyFrequency = valleyFrequency;
+        gen.valleyDepth = valleyDepth;
+        gen.offsetX = offsetX;
+        gen.offsetZ = offsetZ;
 
-        _gen = new TerrainGeneratorThreaded
-        {
-            position          = position,
-            chunkSize         = chunkSize,
-            chunkWorldSize    = chunkWorldSize,
-            baseFrequency     = baseFrequency,
-            octaves           = octaves,
-            persistence       = persistence,
-            lacunarity        = lacunarity,
-            heightMult        = heightMult,
-            exponent          = exponent,
-            mountainBlend     = mountainBlend,
-            mountainFreq      = mountainFreq,
-            riverFrequency    = riverFrequency,
-            riverWidth        = riverWidth,
-            riverDepth        = riverDepth,
-            bankWidth         = bankWidth,
-            bankFlatness      = bankFlatness,
-            valleyFrequency   = valleyFrequency,
-            valleyDepth       = valleyDepth,
-            offsetX           = offsetX,
-            offsetZ           = offsetZ,
-            vegetationDensity = vegDensity
-        };
-
-        State = ChunkState.Generating;
-        new Thread(_gen.Generate) { IsBackground = true }.Start();
+        // Start the math on a new background thread
+        Thread thread = new Thread(gen.Generate);
+        thread.Start();
+        activeThreads.Add(gen);
     }
 
-    // Main-thread poll called by TerrainManager.Update()
-    public void Tick()
+    // Runs every frame on the main thread
+    void Update()
     {
-        if (State != ChunkState.Generating) return;
-        if (!_gen.IsDone) return;
+        if (activeThreads.Count == 0) return;
 
-        ApplyMeshData(_gen.ResultData);
-        State = ChunkState.Active;
-
-        // Vegetation (only once per spawn)
-        if (!_vegetationPlaced && vegPlacer != null)
+        for (int i = activeThreads.Count - 1; i >= 0; i--)
         {
-            vegPlacer.PlaceVegetation(coord, _gen.ResultData.spawnPoints, offsetX);
-            _vegetationPlaced = true;
+            TerrainGeneratorThreaded gen = activeThreads[i];
+            if (gen.ResultData != null)
+            {
+                // The background thread is done! Apply the mesh.
+                ApplyMeshData(gen.ResultData);
+                activeThreads.RemoveAt(i);
+            }
         }
-
-        _gen = null;
     }
 
-    // ─────────────────────────────────────────────────────────
-    public void SetVisible(bool visible)
+    public void ApplyMeshData(MeshData md)
     {
-        gameObject.SetActive(visible);
-        State = visible ? ChunkState.Active : ChunkState.Sleeping;
-
-        // When sleeping, vegetation is also hidden
-        if (vegPlacer != null && !visible)
-            HideVegetation();
-        else if (vegPlacer != null && visible)
-            ShowVegetation();
-    }
-
-    // Full recycle: clear mesh so memory can be reclaimed
-    public void Recycle()
-    {
-        var mf = GetComponent<MeshFilter>();
-        if (mf != null && mf.sharedMesh != null)
-        {
-            Destroy(mf.sharedMesh);
-            mf.sharedMesh = null;
-        }
-
-        if (vegPlacer != null)
-            vegPlacer.RecycleChunk(coord);
-
-        _vegetationPlaced = false;
-        State = ChunkState.Idle;
-        gameObject.SetActive(false);
-    }
-
-    // ─────────────────────────────────────────────────────────
-    void ApplyMeshData(MeshData md)
-    {
-        var mf = GetComponent<MeshFilter>();
-        var mr = GetComponent<MeshRenderer>();
-        var mc = GetComponent<MeshCollider>();
-
-        if (mf == null) mf = gameObject.AddComponent<MeshFilter>();
-        if (mr == null) mr = gameObject.AddComponent<MeshRenderer>();
+        MeshFilter mf = GetComponent<MeshFilter>();
+        MeshRenderer mr = GetComponent<MeshRenderer>();
+        MeshCollider mc = GetComponent<MeshCollider>();
 
         Mesh mesh = md.CreateMesh();
-        mf.sharedMesh = mesh;
-
+        mf.mesh = mesh;
         if (mc != null) mc.sharedMesh = mesh;
         if (material != null) mr.sharedMaterial = material;
     }
-
-    void HideVegetation()
-    {
-        // VegetationPlacer handles the GPU instancing list;
-        // for pooled objects, disable renderers cheaply.
-        // (Full recycle only happens when truly out of range.)
-    }
-
-    void ShowVegetation() { }
 }

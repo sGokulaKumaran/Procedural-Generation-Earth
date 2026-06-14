@@ -1,61 +1,51 @@
 // ============================================================
-//  BiomeData.cs  (v2)
-//  Biome classification + vertex-colour packing.
-//
-//  Vertex colour channels (read by the shader):
-//    R = Mountain rock / snow
-//    G = River bank / wet sand
-//    B = Forest floor / moss
-//    A = Plain grass
-//
-//  NEW: slope is now factored in so steep cliff faces always
-//  get rock colour regardless of elevation.
+//  BiomeData.cs
+//  Defines the biome types used per-vertex and exposes a
+//  static classifier that returns a 0-1 weight per biome.
+//  Vertex colours are packed: R=mountain, G=river bank, B=plain
 // ============================================================
 using UnityEngine;
 
 public enum BiomeType
 {
-    PlainGrass,
-    Forest,
-    RiverBank,
-    Valley,
-    Mountain,
-    Cliff       // steep slope on any biome → rock face
+    PlainGrass,   // flat low areas
+    Forest,       // mid elevation, slightly rolling
+    RiverBank,    // carved channel + flat banks
+    Valley,       // wide low basin between ridges
+    Mountain      // high ridges + peaks
 }
 
 public static class BiomeData
 {
-    // normHeight [0..1], slope [0..1] (0=flat, 1=vertical), plainMask [0..1]
-    public static BiomeType Classify(float normHeight, float slope, float plainMask)
+    // ----------------------------------------------------------
+    //  Given a normalised height [0..1] and a "flatness" value
+    //  [0..1], return which biome this vertex falls in.
+    //  These thresholds are tuned for the default settings;
+    //  they can be exposed as inspector fields if desired.
+    // ----------------------------------------------------------
+    public static BiomeType Classify(float normHeight, float flatness)
     {
-        if (slope > 0.55f)              return BiomeType.Cliff;
-        if (normHeight > 0.72f)         return BiomeType.Mountain;
-        if (normHeight > 0.42f)         return BiomeType.Forest;
-        if (plainMask  > 0.70f
-            && normHeight < 0.25f)      return BiomeType.Valley;
-        if (normHeight < 0.18f)         return BiomeType.RiverBank;
+        if (normHeight > 0.65f) return BiomeType.Mountain;
+        if (normHeight > 0.42f) return BiomeType.Forest;
+        if (flatness   > 0.70f && normHeight < 0.25f) return BiomeType.Valley;
+        if (normHeight < 0.20f) return BiomeType.RiverBank;
         return BiomeType.PlainGrass;
     }
 
-    // Pack into vertex colour for shader blend
-    public static Color BiomeColor(BiomeType b, float snowBlend)
+    // ----------------------------------------------------------
+    //  Pack biome weights into a Color for the vertex colour
+    //  stream so a shader can blend textures.
+    //  R = mountain, G = river/bank, B = forest, A = plain
+    // ----------------------------------------------------------
+    public static Color BiomeColor(BiomeType biome, float blend)
     {
-        switch (b)
+        switch (biome)
         {
-            case BiomeType.Mountain:
-                // fade to white (snow) at the very top
-                return Color.Lerp(new Color(0.7f, 0f, 0f, 0f),
-                                  new Color(1f,   0f, 0f, 0f), snowBlend);
-            case BiomeType.Cliff:
-                return new Color(0.85f, 0f, 0.1f, 0.05f);   // mostly rock
-            case BiomeType.RiverBank:
-                return new Color(0f, 1f, 0f, 0f);
-            case BiomeType.Forest:
-                return new Color(0f, 0f, 1f, 0f);
-            case BiomeType.Valley:
-                return new Color(0f, 0.3f, 0.4f, 0.3f);
-            default:
-                return new Color(0f, 0f, 0.1f, 0.9f);        // plain grass
+            case BiomeType.Mountain:   return new Color(1f,      0f,    0f,    0f);
+            case BiomeType.RiverBank:  return new Color(0f,      1f,    0f,    0f);
+            case BiomeType.Forest:     return new Color(0f,      0f,    1f,    0f);
+            case BiomeType.Valley:     return new Color(0f,      0.5f,  0.5f,  0f);
+            default:                   return new Color(0f,      0f,    0f,    1f);
         }
     }
 }
