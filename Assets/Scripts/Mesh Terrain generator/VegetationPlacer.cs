@@ -35,9 +35,9 @@ public class VegetationPlacer : MonoBehaviour
     [Header("Rock / Boulder Prefabs")]
     public GameObject[] rockPrefabs;
 
-    [Header("Grass Mesh (used with GPU instancing)")]
-    public Mesh grassMesh;
-    public Material grassMaterial;
+    //[Header("Grass Mesh (used with GPU instancing)")]
+    //public Mesh grassMesh;
+    //public Material grassMaterial;
 
     [Header("Density Multipliers  (1 = default)")]
     [Range(0f, 3f)] public float treeDensity = 1f;
@@ -95,8 +95,8 @@ public class VegetationPlacer : MonoBehaviour
                                                  scaleMin: 0.5f, scaleMax: 1.2f));
 
                     // Dense grass in forest
-                    if (grassMesh && rng.NextDouble() < 0.7 * grassDensity)
-                        grassMats.Add(GrassMatrix(pt, rng));
+                    //if (grassMesh && rng.NextDouble() < 0.7 * grassDensity)
+                    //    grassMats.Add(GrassMatrix(pt, rng));
                     break;
 
                 case BiomeType.PlainGrass:
@@ -110,8 +110,8 @@ public class VegetationPlacer : MonoBehaviour
                         placed.Add(SpawnFromPool(rockPool, rockPrefabs, pt, rng, maxRockPool,
                                                  scaleMin: 0.3f, scaleMax: 1.0f));
 
-                    if (grassMesh && rng.NextDouble() < 0.85 * grassDensity)
-                        grassMats.Add(GrassMatrix(pt, rng));
+                    //if (grassMesh && rng.NextDouble() < 0.85 * grassDensity)
+                    //    grassMats.Add(GrassMatrix(pt, rng));
                     break;
 
                 case BiomeType.Valley:
@@ -120,8 +120,8 @@ public class VegetationPlacer : MonoBehaviour
                         placed.Add(SpawnFromPool(treePool, treePrefabs, pt, rng, maxTreePool,
                                                  scaleMin: 0.5f, scaleMax: 1.1f));
 
-                    if (grassMesh && rng.NextDouble() < 0.60 * grassDensity)
-                        grassMats.Add(GrassMatrix(pt, rng));
+                    //if (grassMesh && rng.NextDouble() < 0.60 * grassDensity)
+                    //    grassMats.Add(GrassMatrix(pt, rng));
                     break;
 
                 case BiomeType.RiverBank:
@@ -131,8 +131,8 @@ public class VegetationPlacer : MonoBehaviour
                         placed.Add(SpawnFromPool(bushPool, bushPrefabs, pt, rng, maxBushPool,
                                                  scaleMin: 0.6f, scaleMax: 1.4f));
 
-                    if (grassMesh && rng.NextDouble() < 0.50 * grassDensity)
-                        grassMats.Add(GrassMatrix(pt, rng));
+                    //if (grassMesh && rng.NextDouble() < 0.50 * grassDensity)
+                    //    grassMats.Add(GrassMatrix(pt, rng));
                     break;
 
                 // Mountain / Cliff: only rocks
@@ -179,23 +179,23 @@ public class VegetationPlacer : MonoBehaviour
     // ─────────────────────────────────────────────────────────
     void Update()
     {
-        if (grassMesh == null || grassMaterial == null) return;
+        //if (grassMesh == null || grassMaterial == null) return;
 
-        foreach (var kv in chunkGrass)
-        {
-            var mats = kv.Value;
-            if (mats == null || mats.Count == 0) continue;
+        //foreach (var kv in chunkGrass)
+        //{
+        //    var mats = kv.Value;
+        //    if (mats == null || mats.Count == 0) continue;
 
-            // DrawMeshInstanced limit is 1023 per call
-            int i = 0;
-            while (i < mats.Count)
-            {
-                int count = Mathf.Min(1023, mats.Count - i);
-                var batch = mats.GetRange(i, count);
-                Graphics.DrawMeshInstanced(grassMesh, 0, grassMaterial, batch);
-                i += count;
-            }
-        }
+        //    // DrawMeshInstanced limit is 1023 per call
+        //    int i = 0;
+        //    while (i < mats.Count)
+        //    {
+        //        int count = Mathf.Min(1023, mats.Count - i);
+        //        var batch = mats.GetRange(i, count);
+        //        Graphics.DrawMeshInstanced(grassMesh, 0, grassMaterial, batch);
+        //        i += count;
+        //    }
+        //}
     }
 
     // ── Pool helpers ─────────────────────────────────────────
