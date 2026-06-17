@@ -1,21 +1,9 @@
-// ============================================================
-//  TerrainChunk.cs  (UPDATED for LOD-style throttled loading)
-//
-//  State machine:
-//    Idle        -> fresh / pooled, no mesh
-//    Generating  -> worker thread running on background
-//    MeshPending -> worker thread done, waiting for scheduler to apply
-//    VisualReady -> MeshFilter.mesh applied, waiting for collider
-//    Complete    -> mesh + (optional) collider applied
-//
-//  Generation results are passed through a `GenerationBox` wrapper
-//  so a stale worker thread can never overwrite a fresh generation.
-// ============================================================
 using System.Threading;
 using UnityEngine;
 
 [RequireComponent(typeof(MeshFilter))]
 [RequireComponent(typeof(MeshRenderer))]
+[RequireComponent(typeof(MeshCollider))]
 public class TerrainChunk : MonoBehaviour
 {
     public enum ChunkState
@@ -32,13 +20,11 @@ public class TerrainChunk : MonoBehaviour
     public int chunkSize = 256;
     public int chunkWorldSize = 256;
 
-    // ── Neighbors ──
     public TerrainChunk neighborXPos;
     public TerrainChunk neighborXNeg;
     public TerrainChunk neighborZPos;
     public TerrainChunk neighborZNeg;
 
-    // ── Noise parameters (copied from manager each spawn) ──
     public float baseFrequency = 0.0018f;
     public int octaves = 7;
     public float persistence = 0.48f;
@@ -57,26 +43,21 @@ public class TerrainChunk : MonoBehaviour
     public float offsetX = 0f;
     public float offsetZ = 0f;
 
-    // ── LOD / state ──
     public bool needsCollider = true;
     public ChunkState state = ChunkState.Idle;
 
-    // Cached components
     private MeshFilter mf;
     private MeshRenderer mr;
     private MeshCollider mc;
 
-    // Holds the latest finished mesh data, set by the worker thread
     private MeshData pendingMeshData;
 
-    // Wrapper so the worker thread can write to *its own* box without
-    // racing with a new generation on the same chunk.
     private class GenerationBox { public MeshData data; }
     private GenerationBox currentBox = new GenerationBox();
 
-    // ─────────────────────────────────────────────────────────────
+    // ────────────────────────────────────────────
     //  Lifecycle
-    // ─────────────────────────────────────────────────────────────
+    // ────────────────────────────────────────────
 
     void Awake()
     {
@@ -87,10 +68,8 @@ public class TerrainChunk : MonoBehaviour
 
     void Update()
     {
-        // Skip chunks that have been recycled
         if (!gameObject.activeInHierarchy) return;
 
-        // Worker thread finished? Transition to MeshPending and notify scheduler.
         if (state == ChunkState.Generating && currentBox.data != null)
         {
             pendingMeshData = currentBox.data;
@@ -100,18 +79,16 @@ public class TerrainChunk : MonoBehaviour
             if (scheduler != null)
                 scheduler.EnqueueMeshApply(this);
             else
-                ApplyVisualMesh(); // fallback (no scheduler in scene)
+                ApplyVisualMesh();
         }
     }
 
-    // ─────────────────────────────────────────────────────────────
+    // ────────────────────────────────────────────
     //  Generation
-    // ─────────────────────────────────────────────────────────────
+    // ────────────────────────────────────────────
 
     public void StartThreadedGeneration()
     {
-        // Allocate a fresh box; any orphan write from a previous generation
-        // goes to its own (now-unreferenced) box and is silently dropped.
         var box = new GenerationBox();
         currentBox = box;
         pendingMeshData = null;
@@ -141,18 +118,17 @@ public class TerrainChunk : MonoBehaviour
         Thread thread = new Thread(() =>
         {
             gen.Generate();
-            // Write to the local box — never collides with a new generation
             box.data = gen.ResultData;
         });
         thread.IsBackground = true;
         thread.Start();
     }
 
-    // ─────────────────────────────────────────────────────────────
-    //  Application (called by the scheduler, throttled)
-    // ─────────────────────────────────────────────────────────────
+    // ────────────────────────────────────────────
+    //  Application (called by scheduler, throttled)
+    // ────────────────────────────────────────────
 
-    /// <summary>Step 1: apply the MeshFilter mesh (moderate cost).</summary>
+    /// <summary>Apply the MeshFilter mesh. Cheap-ish.</summary>
     public bool ApplyVisualMesh()
     {
         if (state != ChunkState.MeshPending || pendingMeshData == null) return false;
@@ -160,6 +136,7 @@ public class TerrainChunk : MonoBehaviour
         Mesh mesh = pendingMeshData.CreateMesh();
         if (mf == null) mf = GetComponent<MeshFilter>();
         if (mr == null) mr = GetComponent<MeshRenderer>();
+
         mf.mesh = mesh;
         if (material != null) mr.sharedMaterial = material;
 
@@ -168,38 +145,48 @@ public class TerrainChunk : MonoBehaviour
         return true;
     }
 
-    /// <summary>Step 2: apply the MeshCollider (expensive — biggest hitch).</summary>
+    /// <summary>Apply the MeshCollider. EXPENSIVE — this is what causes hitches.</summary>
     public bool ApplyCollider()
     {
-        if (state != ChunkState.VisualReady) return false;
+        if (state != ChunkChunkStateProxy()) return false; // helper below
         if (mc == null) mc = GetComponent<MeshCollider>();
-        if (mc == null || mf == null || mf.sharedMesh == null)
+        if (mf == null || mf.sharedMesh == null)
         {
             state = ChunkState.Complete;
             return false;
         }
 
-        // The single line that causes most chunk-loading hitches.
-        // Spreading these calls across frames is what eliminates the FPS drops.
         mc.sharedMesh = mf.sharedMesh;
         state = ChunkState.Complete;
         return true;
     }
 
+    // tiny helper so the line above reads cleanly
+    private ChunkState ChunkChunkStateProxy() => ChunkState.VisualReady;
+
+    /// <summary>Cheap: just drop the collider reference. Safe to do on main thread.</summary>
+    public bool RevokeCollider()
+    {
+        if (mc == null) return false;
+        if (mc.sharedMesh == null) return false;
+
+        mc.sharedMesh = null;        // drops BVH; no rebuild cost
+        needsCollider = false;
+        return true;
+    }
+
     public bool HasMeshCollider() => mc != null;
 
-    // ─────────────────────────────────────────────────────────────
-    //  Pool reset (called when the chunk is recycled)
-    // ─────────────────────────────────────────────────────────────
+    // ────────────────────────────────────────────
+    //  Pool reset
+    // ────────────────────────────────────────────
 
     public void ResetForPool()
     {
         if (mf == null) mf = GetComponent<MeshFilter>();
         if (mc == null) mc = GetComponent<MeshCollider>();
 
-        // Drop collider reference BEFORE destroying the mesh
-        if (mc != null) mc.sharedMesh = null;
-
+        if (mc != null) mc.sharedMesh = null;        // drop BEFORE destroying
         if (mf != null && mf.mesh != null)
         {
             if (Application.isPlaying) Destroy(mf.mesh);
@@ -207,7 +194,6 @@ public class TerrainChunk : MonoBehaviour
             mf.mesh = null;
         }
 
-        // Orphan any in-flight worker thread by replacing the box
         currentBox = new GenerationBox();
         pendingMeshData = null;
         state = ChunkState.Idle;
@@ -216,9 +202,9 @@ public class TerrainChunk : MonoBehaviour
         neighborXPos = neighborXNeg = neighborZPos = neighborZNeg = null;
     }
 
-    // ─────────────────────────────────────────────────────────────
+    // ────────────────────────────────────────────
     //  Helpers
-    // ─────────────────────────────────────────────────────────────
+    // ────────────────────────────────────────────
 
     private ChunkLoadScheduler FindScheduler()
     {

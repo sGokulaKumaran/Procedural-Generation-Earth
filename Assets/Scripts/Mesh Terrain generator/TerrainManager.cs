@@ -1,14 +1,4 @@
-﻿// ============================================================
-//  TerrainManager.cs  (UPDATED for LOD-style throttled loading)
-//
-//  Workflow each frame:
-//   1. Detect chunk-boundary crossings
-//   2. Request new chunks via scheduler (throttled spawns)
-//   3. Promote completed visual meshes to "needs collider?" based
-//      on the *current* player distance (LOD)
-//   4. Recycle out-of-range chunks
-// ============================================================
-using System.Collections.Generic;
+﻿using System.Collections.Generic;
 using UnityEngine;
 
 public class TerrainManager : MonoBehaviour
@@ -47,7 +37,6 @@ public class TerrainManager : MonoBehaviour
     [Header("Throttled Loading")]
     public ChunkLoadScheduler scheduler;
 
-    // ── Runtime ──
     private float offsetX, offsetZ;
     private Dictionary<Vector2Int, TerrainChunk> activeChunks = new Dictionary<Vector2Int, TerrainChunk>();
     private Queue<TerrainChunk> chunkPool = new Queue<TerrainChunk>();
@@ -79,14 +68,14 @@ public class TerrainManager : MonoBehaviour
             UpdateVisibleChunks(playerChunk);
         }
 
-        // Continuously evaluate LOD: a chunk may finish generating after
-        // the player has moved, so check collider distance every frame.
+        // Re-evaluate collider LOD every frame so newly-finished chunks
+        // near the player get a collider, and chunks walked past lose theirs.
         UpdateColliderLOD(playerChunk);
     }
 
-    // ─────────────────────────────────────────────────────────────
-    //  Chunk visibility / spawn / recycle
-    // ─────────────────────────────────────────────────────────────
+    // ────────────────────────────────────────────
+    //  Visibility / spawn / recycle
+    // ────────────────────────────────────────────
 
     Vector2Int WorldToChunkCoord(Vector3 pos) => new Vector2Int(
         Mathf.FloorToInt(pos.x / chunkWorldSize),
@@ -106,7 +95,6 @@ public class TerrainManager : MonoBehaviour
                     RequestChunkSpawn(coord, center);
             }
 
-        // Refresh neighbor refs
         foreach (var kv in activeChunks)
         {
             Vector2Int c = kv.Key;
@@ -116,7 +104,6 @@ public class TerrainManager : MonoBehaviour
             kv.Value.neighborZNeg = GetChunk(new Vector2Int(c.x, c.y - 1));
         }
 
-        // Recycle out-of-range chunks
         List<Vector2Int> toRemove = new List<Vector2Int>();
         foreach (var kv in activeChunks)
         {
@@ -133,9 +120,7 @@ public class TerrainManager : MonoBehaviour
     {
         TerrainChunk chunk = GetOrCreateChunk();
 
-        // Reset any leftover state from a previous use of this pooled chunk
         chunk.ResetForPool();
-
         chunk.transform.position = new Vector3(
             coord.x * chunkWorldSize, 0f, coord.y * chunkWorldSize);
         chunk.gameObject.SetActive(true);
@@ -166,7 +151,6 @@ public class TerrainManager : MonoBehaviour
         int dist = Chebyshev(coord, playerChunk);
         chunk.needsCollider = dist <= scheduler.colliderDistance;
 
-        // Register BEFORE assigning neighbors so neighbors can find it
         activeChunks[coord] = chunk;
 
         chunk.neighborXPos = GetChunk(new Vector2Int(coord.x + 1, coord.y));
@@ -174,53 +158,65 @@ public class TerrainManager : MonoBehaviour
         chunk.neighborZPos = GetChunk(new Vector2Int(coord.x, coord.y + 1));
         chunk.neighborZNeg = GetChunk(new Vector2Int(coord.x, coord.y - 1));
 
-        // Hand to scheduler — the actual StartThreadedGeneration happens
-        // later, throttled, on a later frame
         scheduler.EnqueueSpawn(coord, chunk, dist);
     }
 
     void HandleSpawnReady(ChunkLoadScheduler.SpawnRequest req)
     {
         TerrainChunk chunk = req.chunk;
-        // Chunk may have been recycled between enqueue and now
         if (chunk == null || !chunk.gameObject.activeInHierarchy) return;
         chunk.StartThreadedGeneration();
     }
 
-    // ─────────────────────────────────────────────────────────────
-    //  Collider LOD — re-evaluated every frame so moving the player
-    //  can both grant and revoke colliders
-    // ─────────────────────────────────────────────────────────────
+    // ────────────────────────────────────────────
+    //  Collider LOD — re-evaluated every frame
+    // ────────────────────────────────────────────
 
     void UpdateColliderLOD(Vector2Int playerChunk)
     {
         foreach (var kv in activeChunks)
         {
             TerrainChunk chunk = kv.Value;
-            if (chunk.state != TerrainChunk.ChunkState.VisualReady) continue;
+            if (chunk == null) continue;
 
             int dist = Chebyshev(kv.Key, playerChunk);
             bool needs = dist <= scheduler.colliderDistance;
 
-            if (chunk.needsCollider && !needs)
+            // CASE 1: chunk was waiting for its visual mesh
+            if (chunk.state == TerrainChunk.ChunkState.VisualReady)
             {
-                // Player moved away — drop the pending collider request
-                chunk.needsCollider = false;
-                chunk.state = TerrainChunk.ChunkState.Complete;
-                MeshCollider mc = chunk.GetComponent<MeshCollider>();
-                if (mc != null) mc.sharedMesh = null;
+                if (needs && !chunk.needsCollider)
+                {
+                    chunk.needsCollider = true;
+                    scheduler.EnqueueColliderAdd(chunk, dist);
+                }
+                else if (!needs && chunk.needsCollider)
+                {
+                    // player walked away before collider was applied
+                    chunk.needsCollider = false;
+                    chunk.state = TerrainChunk.ChunkState.Complete; // skip
+                }
+                // CASE 2: chunk is complete with collider but player moved away
             }
-            else if (!chunk.needsCollider && needs)
+            else if (chunk.state == TerrainChunk.ChunkState.Complete && chunk.needsCollider && !needs)
             {
-                // Player moved closer — request the collider (throttled)
-                scheduler.EnqueueColliderUpdate(chunk, dist);
+                scheduler.EnqueueColliderRevoke(chunk);
+                chunk.state = TerrainChunk.ChunkState.Complete;
+                chunk.needsCollider = false;
+                // CASE 3: chunk was complete without collider but player moved closer
+            }
+            else if (chunk.state == TerrainChunk.ChunkState.Complete && !chunk.needsCollider && needs)
+            {
+                chunk.needsCollider = true;
+                if (chunk.HasMeshCollider())
+                    scheduler.EnqueueColliderAdd(chunk, dist);
             }
         }
     }
 
-    // ─────────────────────────────────────────────────────────────
+    // ────────────────────────────────────────────
     //  Pool
-    // ─────────────────────────────────────────────────────────────
+    // ────────────────────────────────────────────
 
     TerrainChunk GetChunk(Vector2Int coord)
     {
@@ -244,9 +240,6 @@ public class TerrainManager : MonoBehaviour
     void RecycleChunk(TerrainChunk chunk)
     {
         if (chunk == null) return;
-        // Deactivate — the scheduler will skip inactive chunks on its own.
-        // If a worker thread is still running it will harmlessly write
-        // to an orphaned GenerationBox that nothing reads.
         chunk.gameObject.SetActive(false);
         chunkPool.Enqueue(chunk);
     }
