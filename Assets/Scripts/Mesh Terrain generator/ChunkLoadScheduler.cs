@@ -14,13 +14,11 @@ public class ChunkLoadScheduler : MonoBehaviour
     [Header("LOD")]
     [Range(0, 6)] public int colliderDistance = 2;
 
-    // ── Pending work ──
     private readonly List<SpawnRequest> spawnList = new List<SpawnRequest>();
     private readonly Queue<TerrainChunk> meshQueue = new Queue<TerrainChunk>();
     private readonly Queue<TerrainChunk> colliderQueue = new Queue<TerrainChunk>();
     private readonly Queue<TerrainChunk> colliderRevokeQueue = new Queue<TerrainChunk>();
 
-    // ── Frame budgets ──
     private int spawnsThisFrame, meshesThisFrame, collidersThisFrame, revokesThisFrame;
     private float lastSpawnTime;
 
@@ -32,10 +30,6 @@ public class ChunkLoadScheduler : MonoBehaviour
         public TerrainChunk chunk;
         public int distance;
     }
-
-    // ────────────────────────────────────────────
-    //  Lifecycle
-    // ────────────────────────────────────────────
 
     void Update()
     {
@@ -53,10 +47,6 @@ public class ChunkLoadScheduler : MonoBehaviour
         ProcessColliderRevokeQueue();
     }
 
-    // ────────────────────────────────────────────
-    //  Enqueue API
-    // ────────────────────────────────────────────
-
     public void EnqueueSpawn(Vector2Int coord, TerrainChunk chunk, int distance)
     {
         if (chunk == null) return;
@@ -65,8 +55,7 @@ public class ChunkLoadScheduler : MonoBehaviour
 
     public void EnqueueMeshApply(TerrainChunk chunk)
     {
-        if (chunk == null) return;
-        meshQueue.Enqueue(chunk);
+        if (chunk != null) meshQueue.Enqueue(chunk);
     }
 
     public void EnqueueColliderAdd(TerrainChunk chunk, int distanceFromPlayer)
@@ -82,8 +71,7 @@ public class ChunkLoadScheduler : MonoBehaviour
 
     public void EnqueueColliderRevoke(TerrainChunk chunk)
     {
-        if (chunk == null) return;
-        colliderRevokeQueue.Enqueue(chunk);
+        if (chunk != null) colliderRevokeQueue.Enqueue(chunk);
     }
 
     public void Clear()
@@ -93,10 +81,6 @@ public class ChunkLoadScheduler : MonoBehaviour
         colliderQueue.Clear();
         colliderRevokeQueue.Clear();
     }
-
-    // ────────────────────────────────────────────
-    //  Queue processors
-    // ────────────────────────────────────────────
 
     private void ProcessSpawnQueue()
     {
@@ -145,7 +129,7 @@ public class ChunkLoadScheduler : MonoBehaviour
             TerrainChunk chunk = colliderQueue.Dequeue();
             if (chunk == null || !chunk.gameObject.activeInHierarchy) continue;
             if (chunk.state != TerrainChunk.ChunkState.VisualReady) continue;
-            if (!chunk.needsCollider) continue; // distance changed, skip
+            if (!chunk.needsCollider) continue;
 
             if (chunk.ApplyCollider())
                 collidersThisFrame++;
@@ -154,7 +138,6 @@ public class ChunkLoadScheduler : MonoBehaviour
 
     private void ProcessColliderRevokeQueue()
     {
-        // revokes are cheap (just set sharedMesh = null), but we still cap them
         int safety = 4;
         while (colliderRevokeQueue.Count > 0 && revokesThisFrame < 2 && safety-- > 0)
         {

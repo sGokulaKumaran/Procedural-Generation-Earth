@@ -128,7 +128,6 @@ public class TerrainChunk : MonoBehaviour
     //  Application (called by scheduler, throttled)
     // ────────────────────────────────────────────
 
-    /// <summary>Apply the MeshFilter mesh. Cheap-ish.</summary>
     public bool ApplyVisualMesh()
     {
         if (state != ChunkState.MeshPending || pendingMeshData == null) return false;
@@ -145,10 +144,9 @@ public class TerrainChunk : MonoBehaviour
         return true;
     }
 
-    /// <summary>Apply the MeshCollider. EXPENSIVE — this is what causes hitches.</summary>
     public bool ApplyCollider()
     {
-        if (state != ChunkChunkStateProxy()) return false; // helper below
+        if (state != ChunkState.VisualReady) return false;
         if (mc == null) mc = GetComponent<MeshCollider>();
         if (mf == null || mf.sharedMesh == null)
         {
@@ -161,17 +159,13 @@ public class TerrainChunk : MonoBehaviour
         return true;
     }
 
-    // tiny helper so the line above reads cleanly
-    private ChunkState ChunkChunkStateProxy() => ChunkState.VisualReady;
-
-    /// <summary>Cheap: just drop the collider reference. Safe to do on main thread.</summary>
+    /// <summary>Cheap: drop the collider mesh reference. No BVH rebuild.</summary>
     public bool RevokeCollider()
     {
         if (mc == null) return false;
         if (mc.sharedMesh == null) return false;
 
-        mc.sharedMesh = null;        // drops BVH; no rebuild cost
-        needsCollider = false;
+        mc.sharedMesh = null;
         return true;
     }
 
@@ -186,7 +180,7 @@ public class TerrainChunk : MonoBehaviour
         if (mf == null) mf = GetComponent<MeshFilter>();
         if (mc == null) mc = GetComponent<MeshCollider>();
 
-        if (mc != null) mc.sharedMesh = null;        // drop BEFORE destroying
+        if (mc != null) mc.sharedMesh = null;
         if (mf != null && mf.mesh != null)
         {
             if (Application.isPlaying) Destroy(mf.mesh);
