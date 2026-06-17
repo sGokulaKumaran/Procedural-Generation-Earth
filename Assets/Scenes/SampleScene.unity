@@ -14,10 +14,10 @@ OcclusionCullingSettings:
 RenderSettings:
   m_ObjectHideFlags: 0
   serializedVersion: 10
-  m_Fog: 0
+  m_Fog: 1
   m_FogColor: {r: 0.5, g: 0.5, b: 0.5, a: 1}
   m_FogMode: 3
-  m_FogDensity: 0.01
+  m_FogDensity: 0.001
   m_LinearFogStart: 0
   m_LinearFogEnd: 300
   m_AmbientSkyColor: {r: 0.212, g: 0.227, b: 0.259, a: 1}
@@ -468,9 +468,9 @@ MonoBehaviour:
   m_Name: 
   m_EditorClassIdentifier: Assembly-CSharp::PlayerMovement
   walkSpeed: 10
-  sprintSpeed: 20
+  sprintSpeed: 40
   crouchSpeed: 2
-  gravity: -9.81
+  gravity: -2
   playerCamera: {fileID: 330585546}
   crouchHeight: 1
   groundCheck: {fileID: 1549882487}
@@ -573,15 +573,11 @@ MonoBehaviour:
   m_Name: 
   m_EditorClassIdentifier: Assembly-CSharp::TerrainManager
   player: {fileID: 668775127}
-  chunkSize: 257
-  chunkWorldSize: 256
+  viewDistance: 8
+  chunkSize: 75
+  chunkWorldSize: 74
   chunkPrefab: {fileID: 7830291738522511137, guid: 4b0c031491e74c7469be5903e73a812d, type: 3}
   terrainMaterial: {fileID: 2100000, guid: 08590eb6d8748f0458b2cb0cba2a64de, type: 2}
-  viewDistance: 3
-  sleepDistance: 5
-  unloadDistance: 7
-  minSleepFrames: 120
-  maxGenerationsPerFrame: 2
   seed: 423111
   baseFrequency: 0.0018
   octaves: 7
@@ -598,7 +594,6 @@ MonoBehaviour:
   bankFlatness: 0.6
   valleyFrequency: 0.0008
   valleyDepth: 0.35
-  vegetationDensity: 0.04
 --- !u!114 &1478480944
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -612,21 +607,21 @@ MonoBehaviour:
   m_Name: 
   m_EditorClassIdentifier: Assembly-CSharp::VegetationPlacer
   treePrefabs:
+  - {fileID: 133486, guid: d77236787a13ca14d86f434d4a4a4cb6, type: 3}
+  - {fileID: 133486, guid: d77236787a13ca14d86f434d4a4a4cb6, type: 3}
   - {fileID: 188242, guid: 7572b8494dca61844ae502ca4d47915f, type: 3}
-  - {fileID: 182038, guid: 87475ce363e4bcf40b5791256be68f7d, type: 3}
   - {fileID: 170736, guid: c8f241d1151c5a14dbac88fd4bea1d93, type: 3}
-  - {fileID: 193400, guid: 61c514000f4738f4ca05258453cb351e, type: 3}
-  - {fileID: 102184, guid: d49634e20277dae4bb3439bfd5262bb7, type: 3}
   bushPrefabs:
   - {fileID: 158626, guid: 49b0362a631aa79468a77f04e9cdc298, type: 3}
-  - {fileID: 193358, guid: 86be09d8335b8fe4793de59175aeb6a0, type: 3}
-  - {fileID: 167550, guid: 4c780dab19a7e34419d3da69a409ec7e, type: 3}
+  - {fileID: 146036, guid: 85d0dccb426028947bcac0bf4729cb6c, type: 3}
   - {fileID: 114378, guid: 35047f5db11d8804f941830d7855dcf9, type: 3}
+  - {fileID: 164484, guid: d59133509f424e849b6d63b76ed0cad2, type: 3}
+  - {fileID: 102184, guid: d49634e20277dae4bb3439bfd5262bb7, type: 3}
+  - {fileID: 186700, guid: 458a74fb5b4f6ee4f8ec12ac39eb02a7, type: 3}
   rockPrefabs:
   - {fileID: 189768, guid: 084ccf207a3a8a04ab5fa4d0cb470c55, type: 3}
-  - {fileID: 146036, guid: 85d0dccb426028947bcac0bf4729cb6c, type: 3}
-  grassMesh: {fileID: 4300000, guid: 0fcc27fadc412e04d94e158bc4f0fafd, type: 3}
-  grassMaterial: {fileID: 2100000, guid: a2c8ddb5ea433104a9639539ee9c2e51, type: 2}
+  - {fileID: 193400, guid: 61c514000f4738f4ca05258453cb351e, type: 3}
+  - {fileID: 160138, guid: 29974a951b75ba64d85cd76ae1e03ede, type: 3}
   treeDensity: 1
   bushDensity: 1
   rockDensity: 1
@@ -661,7 +656,7 @@ PrefabInstance:
       objectReference: {fileID: 0}
     - target: {fileID: 6594999713430968851, guid: a6009e01ea7deec45b0b0ca627ef8a38, type: 3}
       propertyPath: m_LocalPosition.y
-      value: 94.7
+      value: 66.8
       objectReference: {fileID: 0}
     - target: {fileID: 6594999713430968851, guid: a6009e01ea7deec45b0b0ca627ef8a38, type: 3}
       propertyPath: m_LocalPosition.z

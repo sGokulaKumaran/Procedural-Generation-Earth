@@ -99,7 +99,7 @@ public class TerrainManager : MonoBehaviour
             if (!needed.Contains(kv.Key))
             {
                 RecycleChunk(kv.Value);
-                toRemove.Add(kv.Key); 
+                toRemove.Add(kv.Key);
             }
         }
         foreach (var k in toRemove) activeChunks.Remove(k);
@@ -155,7 +155,7 @@ public class TerrainManager : MonoBehaviour
         chunk.StartThreadedGeneration();
         Debug.Log("Spawning " + coord);
     }
-    
+
 
     TerrainChunk GetOrCreateChunk()
     {
