@@ -1,5 +1,6 @@
 ﻿using System.Collections.Generic;
 using UnityEngine;
+using static TerrainChunk;
 
 public class ChunkLoadScheduler : MonoBehaviour
 {
@@ -116,7 +117,18 @@ public class ChunkLoadScheduler : MonoBehaviour
             if (chunk.state != TerrainChunk.ChunkState.MeshPending) continue;
 
             if (chunk.ApplyVisualMesh())
+            {
                 meshesThisFrame++;
+
+                // ─────────────────────────────────────────────────
+                // CRITICAL FIX: After applying the visual mesh,
+                // automatically enqueue the collider if needed.
+                // Without this, the chunk sits in VisualReady state
+                // forever with no collider, and the player falls through.
+                // ─────────────────────────────────────────────────
+                if (chunk.needsCollider)
+                    colliderQueue.Enqueue(chunk);
+            }
         }
     }
 
@@ -128,7 +140,7 @@ public class ChunkLoadScheduler : MonoBehaviour
         {
             TerrainChunk chunk = colliderQueue.Dequeue();
             if (chunk == null || !chunk.gameObject.activeInHierarchy) continue;
-            if (chunk.state != TerrainChunk.ChunkState.VisualReady) continue;
+            if (chunk.state != ChunkState.VisualReady) continue;
             if (!chunk.needsCollider) continue;
 
             if (chunk.ApplyCollider())

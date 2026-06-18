@@ -146,11 +146,20 @@ public class TerrainChunk : MonoBehaviour
 
     public bool ApplyCollider()
     {
-        if (state != ChunkState.VisualReady) return false;
-        if (mc == null) mc = GetComponent<MeshCollider>();
-        if (mf == null || mf.sharedMesh == null)
+        if (state != ChunkState.VisualReady)
         {
-            state = ChunkState.Complete;
+            Debug.LogWarning($"[Chunk {position}] ApplyCollider called but state is {state}");
+            return false;
+        }
+        if (mc == null) mc = GetComponent<MeshCollider>();
+        if (mf == null)
+        {
+            Debug.LogError($"[Chunk {position}] MeshFilter is null!");
+            return false;
+        }
+        if (mf.sharedMesh == null)
+        {
+            Debug.LogError($"[Chunk {position}] mf.sharedMesh is null! Visual mesh was never applied.");
             return false;
         }
 
@@ -158,6 +167,7 @@ public class TerrainChunk : MonoBehaviour
         state = ChunkState.Complete;
         return true;
     }
+
 
     /// <summary>Cheap: drop the collider mesh reference. No BVH rebuild.</summary>
     public bool RevokeCollider()
