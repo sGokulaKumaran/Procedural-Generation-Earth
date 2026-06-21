@@ -594,6 +594,7 @@ MonoBehaviour:
   bankFlatness: 0.6
   valleyFrequency: 0.0008
   valleyDepth: 0.35
+  scheduler: {fileID: 0}
 --- !u!114 &1478480944
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -606,29 +607,6 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 05b365091f617324d99fabc6f120abf4, type: 3}
   m_Name: 
   m_EditorClassIdentifier: Assembly-CSharp::VegetationPlacer
-  treePrefabs:
-  - {fileID: 133486, guid: d77236787a13ca14d86f434d4a4a4cb6, type: 3}
-  - {fileID: 133486, guid: d77236787a13ca14d86f434d4a4a4cb6, type: 3}
-  - {fileID: 188242, guid: 7572b8494dca61844ae502ca4d47915f, type: 3}
-  - {fileID: 170736, guid: c8f241d1151c5a14dbac88fd4bea1d93, type: 3}
-  bushPrefabs:
-  - {fileID: 158626, guid: 49b0362a631aa79468a77f04e9cdc298, type: 3}
-  - {fileID: 146036, guid: 85d0dccb426028947bcac0bf4729cb6c, type: 3}
-  - {fileID: 114378, guid: 35047f5db11d8804f941830d7855dcf9, type: 3}
-  - {fileID: 164484, guid: d59133509f424e849b6d63b76ed0cad2, type: 3}
-  - {fileID: 102184, guid: d49634e20277dae4bb3439bfd5262bb7, type: 3}
-  - {fileID: 186700, guid: 458a74fb5b4f6ee4f8ec12ac39eb02a7, type: 3}
-  rockPrefabs:
-  - {fileID: 189768, guid: 084ccf207a3a8a04ab5fa4d0cb470c55, type: 3}
-  - {fileID: 193400, guid: 61c514000f4738f4ca05258453cb351e, type: 3}
-  - {fileID: 160138, guid: 29974a951b75ba64d85cd76ae1e03ede, type: 3}
-  treeDensity: 1
-  bushDensity: 1
-  rockDensity: 1
-  grassDensity: 1
-  maxTreePool: 400
-  maxBushPool: 600
-  maxRockPool: 300
 --- !u!4 &1549882487 stripped
 Transform:
   m_CorrespondingSourceObject: {fileID: 8126858337204105584, guid: a6009e01ea7deec45b0b0ca627ef8a38, type: 3}

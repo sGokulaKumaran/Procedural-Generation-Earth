@@ -7,11 +7,6 @@ public class Playerlook : MonoBehaviour
     [Header("Camera Settings")]
     public float mouseSensitivity = 100f;
     [SerializeField] public Transform playerBody;
-    //[SerializeField] public Transform vanBody;
-    //public GameObject playerObj;
-    //public GameObject VanObj;
-    //public Transform bedCamPivot;
-    //public bool isUnderTheBed = false;
 
     private float xRotation = 0f;
     private float yRotation = 0f;
@@ -39,26 +34,12 @@ public class Playerlook : MonoBehaviour
         xRotation = Mathf.Clamp(xRotation, -80f, 80f);
         transform.localRotation = Quaternion.Euler(xRotation, 0f, 0f);
 
-        // Horizontal look (depends on state)
-        //if (isUnderTheBed)
-        //{  // UP / DOWN (X axis)
-        xRotation -= mouseY;
-        xRotation = Mathf.Clamp(xRotation, -10f, 10f);
-        //    bedCamPivot.localRotation = Quaternion.Euler(xRotation, 0f, 0f);
-
-        //    // LEFT / RIGHT (Y axis)
+        //Horizontal Rotation
         yRotation += mouseX;
-        yRotation = Mathf.Clamp(yRotation, -40f, 40f);
-        //bedCamPivot.localRotation = Quaternion.Euler(0f, yRotation, 0f);
-        //}
-        //else if (playerObj.activeSelf)
-        //{
-        playerBody.Rotate(Vector3.up * mouseX);
-        //}
-        //else if (VanObj.activeSelf)
-        //{
-        //    vanBody.Rotate(Vector3.up * mouseX);
-        //}
+        yRotation = Mathf.Clamp(yRotation, -80f, 50f);
+
+        playerBody.Rotate(Vector3.up * mouseX); 
+   
     }
     void HandleZoom()
     {

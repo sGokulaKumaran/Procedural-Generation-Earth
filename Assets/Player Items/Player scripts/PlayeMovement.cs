@@ -24,12 +24,7 @@ public class PlayerMovement : MonoBehaviour
     private Vector3 velocity;
     private bool isGrounded;
 
-    //[Header("FootStepsEffect")]
-    //public AudioSource walkSteps;
-    //public AudioClip walkStepsClip;
-    //public AudioSource sprintSteps;
-    //public AudioClip sprintStepsCLip;
-    //[Header("Heavy Breath")]
+
     
 
     public bool IsMoving { get; private set; }
@@ -37,13 +32,6 @@ public class PlayerMovement : MonoBehaviour
     public bool IsCrouching => isCrouching;
 
 
-    //private void Awake()
-    //{
-    //    sprintSteps.clip = sprintStepsCLip;
-    //    sprintSteps.loop = true;
-    //    walkSteps.clip = walkStepsClip;
-    //    walkSteps.loop = true;
-    //}
     void Start()
     {
         controller = GetComponent<CharacterController>();
@@ -89,45 +77,7 @@ public class PlayerMovement : MonoBehaviour
             controller.height = originalHeight;
             playerCamera.localPosition = originalCamPos;
         }
-        //HandleFootsteps();
-
 
     }
-    //    private void HandleFootsteps()
-    //{ 
-    //    if (!isGrounded || !IsMoving)
-    //    {
-    //        // Stop all footsteps when not moving or in air
-    //        if (walkSteps.isPlaying) walkSteps.Stop();
-    //        if (sprintSteps.isPlaying) sprintSteps.Stop();
-    //        return;
-    //    }
-
-    //    if (isCrouching)
-    //    {
-    //        // Sitting, no footstep sound
-    //        if (walkSteps.isPlaying) walkSteps.Stop();
-    //        if (sprintSteps.isPlaying) sprintSteps.Stop();
-    //        return;
-    //    }
-
-    //    if (IsSprinting)
-    //    {
-    //        if (!sprintSteps.isPlaying)
-    //        {
-    //            walkSteps.Stop();
-    //            sprintSteps.Play();
-    //        }
-    //    }
-    //    else
-    //    {
-    //        if (!walkSteps.isPlaying)
-    //        {
-    //            sprintSteps.Stop();
-    //            walkSteps.Play();
-    //        }
-    //    }
-    
-
-    // }
+ 
 }
