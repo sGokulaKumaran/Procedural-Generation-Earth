@@ -119,13 +119,6 @@ public class ChunkLoadScheduler : MonoBehaviour
             if (chunk.ApplyVisualMesh())
             {
                 meshesThisFrame++;
-
-                // ─────────────────────────────────────────────────
-                // CRITICAL FIX: After applying the visual mesh,
-                // automatically enqueue the collider if needed.
-                // Without this, the chunk sits in VisualReady state
-                // forever with no collider, and the player falls through.
-                // ─────────────────────────────────────────────────
                 if (chunk.needsCollider)
                     colliderQueue.Enqueue(chunk);
             }
@@ -140,8 +133,8 @@ public class ChunkLoadScheduler : MonoBehaviour
         {
             TerrainChunk chunk = colliderQueue.Dequeue();
             if (chunk == null || !chunk.gameObject.activeInHierarchy) continue;
-            if (chunk.state != ChunkState.VisualReady) continue;
             if (!chunk.needsCollider) continue;
+            if (!chunk.NeedsColliderMesh()) continue;  // already has collider or no mesh
 
             if (chunk.ApplyCollider())
                 collidersThisFrame++;

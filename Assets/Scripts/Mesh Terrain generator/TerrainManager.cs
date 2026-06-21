@@ -55,8 +55,6 @@ public class TerrainManager : MonoBehaviour
 
         scheduler.OnSpawnReady = HandleSpawnReady;
 
-        // ── Spawn the player's starting chunk SYNCHRONOUSLY (no throttle)
-        //    so the player has ground to stand on from frame 0.
         if (player != null)
             SpawnPlayerStartingChunk();
     }
@@ -65,7 +63,6 @@ public class TerrainManager : MonoBehaviour
     {
         Vector2Int pc = WorldToChunkCoord(player.position);
 
-        // Spawn a 3x3 around the player immediately, with colliders forced ON
         for (int dx = -1; dx <= 1; dx++)
             for (int dz = -1; dz <= 1; dz++)
             {
@@ -73,9 +70,6 @@ public class TerrainManager : MonoBehaviour
                 SpawnChunkImmediate(c, pc, forceCollider: true);
             }
 
-        // Drive the worker threads and apply meshes/colliders immediately too.
-        // This still spreads the work because meshes/colliders are 1-per-frame,
-        // but it skips the "queue first, then start" delay.
         DriveImmediateLoading();
     }
 
@@ -111,7 +105,6 @@ public class TerrainManager : MonoBehaviour
         chunk.offsetX = offsetX;
         chunk.offsetZ = offsetZ;
 
-        // Force collider on the starting 3x3 — never let the player fall
         chunk.needsCollider = forceCollider;
 
         activeChunks[coord] = chunk;
@@ -119,15 +112,12 @@ public class TerrainManager : MonoBehaviour
 
     void DriveImmediateLoading()
     {
-        // Start generation on the starting 3x3 NOW (bypass throttle)
         foreach (var kv in activeChunks)
         {
             if (kv.Value.state == TerrainChunk.ChunkState.Idle)
                 kv.Value.StartThreadedGeneration();
         }
 
-        // The worker threads will still take time. We add the player's
-        // chunk collider to the scheduler's front-of-queue.
         foreach (var kv in activeChunks)
         {
             kv.Value.needsCollider = true;
@@ -148,16 +138,8 @@ public class TerrainManager : MonoBehaviour
             UpdateVisibleChunks(playerChunk);
         }
 
-        // Every frame: re-evaluate collider LOD, but with a SAFETY GUARD
-        // that NEVER revokes the collider of the chunk the player is
-        // currently on, and NEVER revokes a collider if the new chunk
-        // underneath the player doesn't have one yet.
         UpdateColliderLOD(playerChunk);
     }
-
-    // ────────────────────────────────────────────
-    //  Visibility / spawn / recycle
-    // ────────────────────────────────────────────
 
     Vector2Int WorldToChunkCoord(Vector3 pos) => new Vector2Int(
         Mathf.FloorToInt(pos.x / chunkWorldSize),
@@ -251,72 +233,58 @@ public class TerrainManager : MonoBehaviour
 
     // ────────────────────────────────────────────
     //  Collider LOD — re-evaluated every frame
-    //  with SAFETY GUARDS so the player never loses ground
     // ────────────────────────────────────────────
 
     void UpdateColliderLOD(Vector2Int playerChunk)
     {
-        // 1) Force the chunk under the player + its 8 neighbors to NEED a collider
-        //    This is a hard guarantee — overrides any earlier "complete without
-        //    collider" state.
+        // PASS 1: 3x3 safety zone — must always have colliders
         for (int dx = -1; dx <= 1; dx++)
             for (int dz = -1; dz <= 1; dz++)
             {
                 Vector2Int c = new Vector2Int(playerChunk.x + dx, playerChunk.y + dz);
                 if (!activeChunks.TryGetValue(c, out TerrainChunk center)) continue;
 
-                int dist = 0; // center is always dist 0/1, both within colliderDistance
-                bool needs = dist <= scheduler.colliderDistance;
-
-                if (center.state == TerrainChunk.ChunkState.VisualReady && needs)
+                // Use NeedsColliderMesh() — checks actual collider state, not just ChunkState
+                if (center.NeedsColliderMesh() && !center.needsCollider)
                 {
-                    if (!center.needsCollider)
-                    {
-                        center.needsCollider = true;
-                        scheduler.EnqueueColliderAdd(center, dist);
-                    }
+                    center.needsCollider = true;
+                    scheduler.EnqueueColliderAdd(center, 0);
                 }
             }
 
-        // 2) For all OTHER chunks in the view distance, apply normal LOD:
-        //    - in colliderDistance but not yet having one → add
-        //    - outside colliderDistance and having one → revoke
+        // PASS 2: Other chunks — apply LOD
         foreach (var kv in activeChunks)
         {
             TerrainChunk chunk = kv.Value;
             if (chunk == null) continue;
 
-            // Skip the safety 3x3 — we just handled those above
             int dist = Chebyshev(kv.Key, playerChunk);
-            if (dist <= 1) continue; // 3x3 area is the safety zone
+            if (dist <= 1) continue; // safety zone handled above
 
             bool needs = dist <= scheduler.colliderDistance;
 
-            // chunk is in LOD range and is at least visually ready
-            if (needs && chunk.state == TerrainChunk.ChunkState.VisualReady && !chunk.needsCollider)
+            if (needs)
             {
-                chunk.needsCollider = true;
-                scheduler.EnqueueColliderAdd(chunk, dist);
+                // In LOD range — make sure collider is added
+                if (chunk.NeedsColliderMesh() && !chunk.needsCollider)
+                {
+                    chunk.needsCollider = true;
+                    scheduler.EnqueueColliderAdd(chunk, dist);
+                }
             }
-            // chunk is OUT of LOD range, and currently has a collider → revoke
-            else if (!needs && chunk.needsCollider)
+            else
             {
-                // SAFETY: do NOT revoke if it's the chunk the player is
-                // currently standing on. This is already handled by the
-                // 3x3 loop above, but double-check here for paranoia.
-                if (kv.Key == playerChunk) continue;
+                // Out of LOD range — revoke collider if present
+                if (chunk.needsCollider)
+                {
+                    if (kv.Key == playerChunk) continue; // safety: never revoke player's chunk
 
-                scheduler.EnqueueColliderRevoke(chunk);
-                chunk.needsCollider = false;
-                // (We do NOT change state — chunk is still Complete, just
-                //  without a collider mesh assigned. State machine stays clean.)
+                    scheduler.EnqueueColliderRevoke(chunk);
+                    chunk.needsCollider = false;
+                }
             }
         }
     }
-
-    // ────────────────────────────────────────────
-    //  Pool
-    // ────────────────────────────────────────────
 
     TerrainChunk GetChunk(Vector2Int coord)
     {

@@ -104,13 +104,16 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 3a5301f03f028d74bbd2f101fe32ef41, type: 3}
   m_Name: 
   m_EditorClassIdentifier: Assembly-CSharp::TerrainChunk
-  material: {fileID: 2100000, guid: a704b0091b58e1c409ee6159635274b2, type: 2}
+  material: {fileID: 2100000, guid: 08590eb6d8748f0458b2cb0cba2a64de, type: 2}
   position: {x: 0, y: 0}
-  coord: {x: 0, y: 0}
   chunkSize: 256
   chunkWorldSize: 256
-  vegPlacer: {fileID: 0}
+  neighborXPos: {fileID: 0}
+  neighborXNeg: {fileID: 0}
+  neighborZPos: {fileID: 0}
+  neighborZNeg: {fileID: 0}
   baseFrequency: 0.0018
+  octaves: 7
   persistence: 0.48
   lacunarity: 2.1
   heightMult: 120
@@ -124,14 +127,10 @@ MonoBehaviour:
   bankFlatness: 0.6
   valleyFrequency: 0.0008
   valleyDepth: 0.35
-  offsetX: 1.11
-  offsetZ: 1.19
-  octaves: 7
-  vegDensity: 0.04
-  neighborXPos: {fileID: 0}
-  neighborXNeg: {fileID: 0}
-  neighborZPos: {fileID: 0}
-  neighborZNeg: {fileID: 0}
+  offsetX: 0
+  offsetZ: 0
+  needsCollider: 1
+  state: 0
 --- !u!64 &4185560991325435913
 MeshCollider:
   m_ObjectHideFlags: 0

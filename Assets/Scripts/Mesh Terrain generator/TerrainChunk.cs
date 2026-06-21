@@ -55,10 +55,6 @@ public class TerrainChunk : MonoBehaviour
     private class GenerationBox { public MeshData data; }
     private GenerationBox currentBox = new GenerationBox();
 
-    // ────────────────────────────────────────────
-    //  Lifecycle
-    // ────────────────────────────────────────────
-
     void Awake()
     {
         mf = GetComponent<MeshFilter>();
@@ -82,10 +78,6 @@ public class TerrainChunk : MonoBehaviour
                 ApplyVisualMesh();
         }
     }
-
-    // ────────────────────────────────────────────
-    //  Generation
-    // ────────────────────────────────────────────
 
     public void StartThreadedGeneration()
     {
@@ -124,10 +116,6 @@ public class TerrainChunk : MonoBehaviour
         thread.Start();
     }
 
-    // ────────────────────────────────────────────
-    //  Application (called by scheduler, throttled)
-    // ────────────────────────────────────────────
-
     public bool ApplyVisualMesh()
     {
         if (state != ChunkState.MeshPending || pendingMeshData == null) return false;
@@ -146,28 +134,37 @@ public class TerrainChunk : MonoBehaviour
 
     public bool ApplyCollider()
     {
-        if (state != ChunkState.VisualReady)
+        // Allow re-apply if state is Complete (collider was revoked) but mesh exists
+        if (state != ChunkState.VisualReady && state != ChunkState.Complete)
         {
-            Debug.LogWarning($"[Chunk {position}] ApplyCollider called but state is {state}");
+            Debug.LogError($"[Chunk {position}] ApplyCollider failed: state is {state}, expected VisualReady or Complete.");
             return false;
         }
+
         if (mc == null) mc = GetComponent<MeshCollider>();
         if (mf == null)
         {
-            Debug.LogError($"[Chunk {position}] MeshFilter is null!");
+            Debug.LogError($"[Chunk {position}] ApplyCollider failed: MeshFilter is null.");
             return false;
         }
         if (mf.sharedMesh == null)
         {
-            Debug.LogError($"[Chunk {position}] mf.sharedMesh is null! Visual mesh was never applied.");
+            Debug.LogError($"[Chunk {position}] ApplyCollider failed: mf.sharedMesh is null.");
             return false;
         }
 
+        // Check if collider is already applied
+        if (mc.sharedMesh != null && mc.sharedMesh == mf.sharedMesh)
+        {
+            // Already has the correct collider
+            return true;
+        }
+
+        // Apply the collider
         mc.sharedMesh = mf.sharedMesh;
         state = ChunkState.Complete;
         return true;
     }
-
 
     /// <summary>Cheap: drop the collider mesh reference. No BVH rebuild.</summary>
     public bool RevokeCollider()
@@ -181,9 +178,20 @@ public class TerrainChunk : MonoBehaviour
 
     public bool HasMeshCollider() => mc != null;
 
-    // ────────────────────────────────────────────
-    //  Pool reset
-    // ────────────────────────────────────────────
+    /// <summary>True if the chunk's visual mesh exists but its collider doesn't.</summary>
+    public bool NeedsColliderMesh()
+    {
+        if (mc == null) return false;
+        if (mf == null || mf.sharedMesh == null) return false;
+        return mc.sharedMesh == null;
+    }
+
+    /// <summary>True if the chunk currently has a collider mesh assigned.</summary>
+    public bool HasActiveCollider()
+    {
+        if (mc == null) return false;
+        return mc.sharedMesh != null;
+    }
 
     public void ResetForPool()
     {
@@ -205,10 +213,6 @@ public class TerrainChunk : MonoBehaviour
 
         neighborXPos = neighborXNeg = neighborZPos = neighborZNeg = null;
     }
-
-    // ────────────────────────────────────────────
-    //  Helpers
-    // ────────────────────────────────────────────
 
     private ChunkLoadScheduler FindScheduler()
     {
