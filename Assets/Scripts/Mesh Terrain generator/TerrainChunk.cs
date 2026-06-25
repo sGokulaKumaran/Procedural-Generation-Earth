@@ -1,4 +1,4 @@
-using System.Threading;
+﻿using System.Threading;
 using UnityEngine;
 
 [RequireComponent(typeof(MeshFilter))]
@@ -45,6 +45,11 @@ public class TerrainChunk : MonoBehaviour
 
     public bool needsCollider = true;
     public ChunkState state = ChunkState.Idle;
+
+    // ── River data (per-chunk) ──
+    public float[] heightMap;
+    public float[] riverMap;
+    public float[] flatnessMap;
 
     private MeshFilter mf;
     private MeshRenderer mr;
@@ -107,10 +112,18 @@ public class TerrainChunk : MonoBehaviour
         gen.offsetX = offsetX;
         gen.offsetZ = offsetZ;
 
+        // River data passes through to the generator
+        gen.useRivers = true;
+        gen.seed = (int)(offsetX * 100) + (int)position.x * 1000 + (int)position.y;
+
         Thread thread = new Thread(() =>
         {
             gen.Generate();
             box.data = gen.ResultData;
+            // Also store the height/river maps for texture blending
+            heightMap = gen.heightMap;
+            //riverMap = gen.riverMap;
+            flatnessMap = gen.flatnessMap;
         });
         thread.IsBackground = true;
         thread.Start();
@@ -134,39 +147,20 @@ public class TerrainChunk : MonoBehaviour
 
     public bool ApplyCollider()
     {
-        // Allow re-apply if state is Complete (collider was revoked) but mesh exists
         if (state != ChunkState.VisualReady && state != ChunkState.Complete)
-        {
-            Debug.LogError($"[Chunk {position}] ApplyCollider failed: state is {state}, expected VisualReady or Complete.");
             return false;
-        }
 
         if (mc == null) mc = GetComponent<MeshCollider>();
-        if (mf == null)
-        {
-            Debug.LogError($"[Chunk {position}] ApplyCollider failed: MeshFilter is null.");
-            return false;
-        }
-        if (mf.sharedMesh == null)
-        {
-            Debug.LogError($"[Chunk {position}] ApplyCollider failed: mf.sharedMesh is null.");
-            return false;
-        }
+        if (mf == null) return false;
+        if (mf.sharedMesh == null) return false;
 
-        // Check if collider is already applied
-        if (mc.sharedMesh != null && mc.sharedMesh == mf.sharedMesh)
-        {
-            // Already has the correct collider
-            return true;
-        }
+        if (mc.sharedMesh == mf.sharedMesh) return true;
 
-        // Apply the collider
         mc.sharedMesh = mf.sharedMesh;
         state = ChunkState.Complete;
         return true;
     }
 
-    /// <summary>Cheap: drop the collider mesh reference. No BVH rebuild.</summary>
     public bool RevokeCollider()
     {
         if (mc == null) return false;
@@ -178,7 +172,6 @@ public class TerrainChunk : MonoBehaviour
 
     public bool HasMeshCollider() => mc != null;
 
-    /// <summary>True if the chunk's visual mesh exists but its collider doesn't.</summary>
     public bool NeedsColliderMesh()
     {
         if (mc == null) return false;
@@ -186,11 +179,18 @@ public class TerrainChunk : MonoBehaviour
         return mc.sharedMesh == null;
     }
 
-    /// <summary>True if the chunk currently has a collider mesh assigned.</summary>
     public bool HasActiveCollider()
     {
         if (mc == null) return false;
         return mc.sharedMesh != null;
+    }
+
+    // ----------------------------------------------------------
+    //  LOD visibility control
+    // ----------------------------------------------------------
+    public void SetVisible(bool visible)
+    {
+        if (mr != null) mr.enabled = visible;
     }
 
     public void ResetForPool()
@@ -210,6 +210,10 @@ public class TerrainChunk : MonoBehaviour
         pendingMeshData = null;
         state = ChunkState.Idle;
         needsCollider = true;
+
+        heightMap = null;
+        riverMap = null;
+        flatnessMap = null;
 
         neighborXPos = neighborXNeg = neighborZPos = neighborZNeg = null;
     }

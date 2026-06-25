@@ -37,10 +37,32 @@ public class TerrainManager : MonoBehaviour
     [Header("Throttled Loading")]
     public ChunkLoadScheduler scheduler;
 
+    [Header("Live Update")]
+    [Tooltip("Enable live terrain updates when parameters change")]
+    public bool enableLiveUpdate = true;
+    [Tooltip("Seconds between chunk regenerations")]
+    [Range(0.05f, 2.0f)] public float liveUpdateInterval = 0.15f;
+
     private float offsetX, offsetZ;
     private Dictionary<Vector2Int, TerrainChunk> activeChunks = new Dictionary<Vector2Int, TerrainChunk>();
     private Queue<TerrainChunk> chunkPool = new Queue<TerrainChunk>();
     private Vector2Int lastPlayerChunk = new Vector2Int(int.MaxValue, int.MaxValue);
+
+    // Public accessors for LOD system
+    public float GetOffsetX() => offsetX;
+    public float GetOffsetZ() => offsetZ;
+
+    // ── Live update state ──
+    private bool hasParameterSnapshot = false;
+    private Queue<TerrainChunk> regenQueue = new Queue<TerrainChunk>();
+    private float liveUpdateTimer = 0f;
+
+    // Parameter snapshots
+    private float s_baseFrequency, s_persistence, s_lacunarity, s_heightMult, s_exponent;
+    private float s_mountainBlend, s_mountainFreq;
+    private float s_riverFrequency, s_riverWidth, s_riverDepth, s_bankWidth, s_bankFlatness;
+    private float s_valleyFrequency, s_valleyDepth;
+    private int s_octaves;
 
     void Start()
     {
@@ -57,7 +79,156 @@ public class TerrainManager : MonoBehaviour
 
         if (player != null)
             SpawnPlayerStartingChunk();
+
+        TakeParameterSnapshot();
     }
+
+    void Update()
+    {
+        if (player == null) return;
+
+        Vector2Int playerChunk = WorldToChunkCoord(player.position);
+
+        if (playerChunk != lastPlayerChunk)
+        {
+            lastPlayerChunk = playerChunk;
+            UpdateVisibleChunks(playerChunk);
+        }
+
+        UpdateColliderLOD(playerChunk);
+
+        if (enableLiveUpdate)
+        {
+            CheckAndQueueLiveUpdate();
+            ProcessLiveRegenQueue(playerChunk);
+        }
+    }
+
+    // ───────────────────────────────────────────────────
+    //  Live Update System
+    // ───────────────────────────────────────────────────
+
+    void TakeParameterSnapshot()
+    {
+        s_baseFrequency = baseFrequency;
+        s_octaves = octaves;
+        s_persistence = persistence;
+        s_lacunarity = lacunarity;
+        s_heightMult = heightMult;
+        s_exponent = exponent;
+        s_mountainBlend = mountainBlend;
+        s_mountainFreq = mountainFreq;
+        s_riverFrequency = riverFrequency;
+        s_riverWidth = riverWidth;
+        s_riverDepth = riverDepth;
+        s_bankWidth = bankWidth;
+        s_bankFlatness = bankFlatness;
+        s_valleyFrequency = valleyFrequency;
+        s_valleyDepth = valleyDepth;
+        hasParameterSnapshot = true;
+    }
+
+    bool HasParameterChanged()
+    {
+        if (!Mathf.Approximately(baseFrequency, s_baseFrequency)) return true;
+        if (octaves != s_octaves) return true;
+        if (!Mathf.Approximately(persistence, s_persistence)) return true;
+        if (!Mathf.Approximately(lacunarity, s_lacunarity)) return true;
+        if (!Mathf.Approximately(heightMult, s_heightMult)) return true;
+        if (!Mathf.Approximately(exponent, s_exponent)) return true;
+        if (!Mathf.Approximately(mountainBlend, s_mountainBlend)) return true;
+        if (!Mathf.Approximately(mountainFreq, s_mountainFreq)) return true;
+        if (!Mathf.Approximately(riverFrequency, s_riverFrequency)) return true;
+        if (!Mathf.Approximately(riverWidth, s_riverWidth)) return true;
+        if (!Mathf.Approximately(riverDepth, s_riverDepth)) return true;
+        if (!Mathf.Approximately(bankWidth, s_bankWidth)) return true;
+        if (!Mathf.Approximately(bankFlatness, s_bankFlatness)) return true;
+        if (!Mathf.Approximately(valleyFrequency, s_valleyFrequency)) return true;
+        if (!Mathf.Approximately(valleyDepth, s_valleyDepth)) return true;
+        return false;
+    }
+
+    void CheckAndQueueLiveUpdate()
+    {
+        if (!hasParameterSnapshot)
+        {
+            TakeParameterSnapshot();
+            return;
+        }
+
+        if (HasParameterChanged())
+        {
+            QueueAllChunksForRegen();
+            TakeParameterSnapshot();
+        }
+    }
+
+    void QueueAllChunksForRegen()
+    {
+        regenQueue.Clear();
+
+        foreach (var kv in activeChunks)
+        {
+            if (kv.Value != null && kv.Value.gameObject.activeInHierarchy)
+                regenQueue.Enqueue(kv.Value);
+        }
+    }
+
+    void ProcessLiveRegenQueue(Vector2Int playerChunk)
+    {
+        if (regenQueue.Count == 0) return;
+
+        liveUpdateTimer += Time.deltaTime;
+        if (liveUpdateTimer < liveUpdateInterval) return;
+        liveUpdateTimer = 0f;
+
+        // Sort by distance to player
+        if (regenQueue.Count > 1)
+        {
+            List<TerrainChunk> tempList = new List<TerrainChunk>();
+            while (regenQueue.Count > 0)
+                tempList.Add(regenQueue.Dequeue());
+
+            tempList.Sort((a, b) =>
+            {
+                Vector2Int coordA = GetChunkCoordFromTransform(a);
+                Vector2Int coordB = GetChunkCoordFromTransform(b);
+                int distA = Chebyshev(coordA, playerChunk);
+                int distB = Chebyshev(coordB, playerChunk);
+                return distA.CompareTo(distB);
+            });
+
+            foreach (var chunk in tempList)
+                regenQueue.Enqueue(chunk);
+        }
+
+        TerrainChunk chunkToRegen = regenQueue.Dequeue();
+        if (chunkToRegen == null || !chunkToRegen.gameObject.activeInHierarchy) return;
+
+        RegenerateChunk(chunkToRegen);
+    }
+
+    Vector2Int GetChunkCoordFromTransform(TerrainChunk chunk)
+    {
+        int x = Mathf.FloorToInt(chunk.transform.position.x / chunkWorldSize);
+        int z = Mathf.FloorToInt(chunk.transform.position.z / chunkWorldSize);
+        return new Vector2Int(x, z);
+    }
+
+    void RegenerateChunk(TerrainChunk chunk)
+    {
+        Vector2Int coord = GetChunkCoordFromTransform(chunk);
+        CopyGenParams(chunk);
+        chunk.position = new Vector2(coord.x, coord.y);
+
+        chunk.RevokeCollider();
+        chunk.state = TerrainChunk.ChunkState.Idle;
+        chunk.StartThreadedGeneration();
+    }
+
+    // ───────────────────────────────────────────────────
+    //  Original Methods (unchanged)
+    // ───────────────────────────────────────────────────
 
     void SpawnPlayerStartingChunk()
     {
@@ -83,8 +254,16 @@ public class TerrainManager : MonoBehaviour
             coord.x * chunkWorldSize, 0f, coord.y * chunkWorldSize);
         chunk.gameObject.SetActive(true);
 
-        chunk.chunkWorldSize = chunkWorldSize;
+        CopyGenParams(chunk);
+        chunk.needsCollider = forceCollider;
         chunk.position = new Vector2(coord.x, coord.y);
+
+        activeChunks[coord] = chunk;
+    }
+
+    void CopyGenParams(TerrainChunk chunk)
+    {
+        chunk.chunkWorldSize = chunkWorldSize;
         chunk.chunkSize = chunkSize;
         chunk.material = terrainMaterial;
         chunk.baseFrequency = baseFrequency;
@@ -104,10 +283,6 @@ public class TerrainManager : MonoBehaviour
         chunk.valleyDepth = valleyDepth;
         chunk.offsetX = offsetX;
         chunk.offsetZ = offsetZ;
-
-        chunk.needsCollider = forceCollider;
-
-        activeChunks[coord] = chunk;
     }
 
     void DriveImmediateLoading()
@@ -121,24 +296,7 @@ public class TerrainManager : MonoBehaviour
         foreach (var kv in activeChunks)
         {
             kv.Value.needsCollider = true;
-            if (kv.Value.HasMeshCollider())
-                scheduler.EnqueueColliderAdd(kv.Value, 0);
         }
-    }
-
-    void Update()
-    {
-        if (player == null) return;
-
-        Vector2Int playerChunk = WorldToChunkCoord(player.position);
-
-        if (playerChunk != lastPlayerChunk)
-        {
-            lastPlayerChunk = playerChunk;
-            UpdateVisibleChunks(playerChunk);
-        }
-
-        UpdateColliderLOD(playerChunk);
     }
 
     Vector2Int WorldToChunkCoord(Vector3 pos) => new Vector2Int(
@@ -189,30 +347,11 @@ public class TerrainManager : MonoBehaviour
             coord.x * chunkWorldSize, 0f, coord.y * chunkWorldSize);
         chunk.gameObject.SetActive(true);
 
-        chunk.chunkWorldSize = chunkWorldSize;
-        chunk.position = new Vector2(coord.x, coord.y);
-        chunk.chunkSize = chunkSize;
-        chunk.material = terrainMaterial;
-        chunk.baseFrequency = baseFrequency;
-        chunk.octaves = octaves;
-        chunk.persistence = persistence;
-        chunk.lacunarity = lacunarity;
-        chunk.heightMult = heightMult;
-        chunk.exponent = exponent;
-        chunk.mountainBlend = mountainBlend;
-        chunk.mountainFreq = mountainFreq;
-        chunk.riverFrequency = riverFrequency;
-        chunk.riverWidth = riverWidth;
-        chunk.riverDepth = riverDepth;
-        chunk.bankWidth = bankWidth;
-        chunk.bankFlatness = bankFlatness;
-        chunk.valleyFrequency = valleyFrequency;
-        chunk.valleyDepth = valleyDepth;
-        chunk.offsetX = offsetX;
-        chunk.offsetZ = offsetZ;
+        CopyGenParams(chunk);
 
         int dist = Chebyshev(coord, playerChunk);
         chunk.needsCollider = dist <= scheduler.colliderDistance;
+        chunk.position = new Vector2(coord.x, coord.y);
 
         activeChunks[coord] = chunk;
 
@@ -231,20 +370,14 @@ public class TerrainManager : MonoBehaviour
         chunk.StartThreadedGeneration();
     }
 
-    // ────────────────────────────────────────────
-    //  Collider LOD — re-evaluated every frame
-    // ────────────────────────────────────────────
-
     void UpdateColliderLOD(Vector2Int playerChunk)
     {
-        // PASS 1: 3x3 safety zone — must always have colliders
         for (int dx = -1; dx <= 1; dx++)
             for (int dz = -1; dz <= 1; dz++)
             {
                 Vector2Int c = new Vector2Int(playerChunk.x + dx, playerChunk.y + dz);
                 if (!activeChunks.TryGetValue(c, out TerrainChunk center)) continue;
 
-                // Use NeedsColliderMesh() — checks actual collider state, not just ChunkState
                 if (center.NeedsColliderMesh() && !center.needsCollider)
                 {
                     center.needsCollider = true;
@@ -252,20 +385,18 @@ public class TerrainManager : MonoBehaviour
                 }
             }
 
-        // PASS 2: Other chunks — apply LOD
         foreach (var kv in activeChunks)
         {
             TerrainChunk chunk = kv.Value;
             if (chunk == null) continue;
 
             int dist = Chebyshev(kv.Key, playerChunk);
-            if (dist <= 1) continue; // safety zone handled above
+            if (dist <= 1) continue;
 
             bool needs = dist <= scheduler.colliderDistance;
 
             if (needs)
             {
-                // In LOD range — make sure collider is added
                 if (chunk.NeedsColliderMesh() && !chunk.needsCollider)
                 {
                     chunk.needsCollider = true;
@@ -274,11 +405,9 @@ public class TerrainManager : MonoBehaviour
             }
             else
             {
-                // Out of LOD range — revoke collider if present
                 if (chunk.needsCollider)
                 {
-                    if (kv.Key == playerChunk) continue; // safety: never revoke player's chunk
-
+                    if (kv.Key == playerChunk) continue;
                     scheduler.EnqueueColliderRevoke(chunk);
                     chunk.needsCollider = false;
                 }
@@ -286,13 +415,13 @@ public class TerrainManager : MonoBehaviour
         }
     }
 
-    TerrainChunk GetChunk(Vector2Int coord)
+    public TerrainChunk GetChunk(Vector2Int coord)
     {
         activeChunks.TryGetValue(coord, out TerrainChunk chunk);
         return chunk;
     }
 
-    TerrainChunk GetOrCreateChunk()
+    public TerrainChunk GetOrCreateChunk()
     {
         if (chunkPool.Count > 0)
         {

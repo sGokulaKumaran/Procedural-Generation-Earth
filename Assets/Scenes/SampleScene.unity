@@ -537,6 +537,7 @@ GameObject:
   m_Component:
   - component: {fileID: 1478480942}
   - component: {fileID: 1478480943}
+  - component: {fileID: 1478480945}
   - component: {fileID: 1478480944}
   m_Layer: 0
   m_Name: Terraingenerator
@@ -604,9 +605,42 @@ MonoBehaviour:
   m_GameObject: {fileID: 1478480941}
   m_Enabled: 1
   m_EditorHideFlags: 0
-  m_Script: {fileID: 11500000, guid: 05b365091f617324d99fabc6f120abf4, type: 3}
+  m_Script: {fileID: 11500000, guid: bab94f4a68f122645bf7e5e436964100, type: 3}
   m_Name: 
-  m_EditorClassIdentifier: Assembly-CSharp::VegetationPlacer
+  m_EditorClassIdentifier: Assembly-CSharp::TextureManager
+  textures:
+    grassTexture: {fileID: 0}
+    forestTexture: {fileID: 0}
+    mountainTexture: {fileID: 0}
+    riverBankTexture: {fileID: 0}
+    waterTexture: {fileID: 0}
+    valleyTexture: {fileID: 0}
+    mountainBlendHeight: 0.65
+    forestBlendHeight: 0.42
+    riverBankThreshold: 0.2
+    waterThreshold: 0.05
+  terrainMaterial: {fileID: 2100000, guid: 08590eb6d8748f0458b2cb0cba2a64de, type: 2}
+  globalTiling: 1
+--- !u!114 &1478480945
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1478480941}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 59fbac13ff4f79843ad25733c0db8c0f, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Assembly-CSharp::WorldLODSystem
+  worldRadiusChunks: 30
+  activeRadius: 4
+  fadeRadius: 8
+  fadeInDuration: 0.5
+  fadeOutDuration: 0.8
+  chunksPerSecond: 8
+  terrainManager: {fileID: 1478480943}
+  player: {fileID: 668775127}
 --- !u!4 &1549882487 stripped
 Transform:
   m_CorrespondingSourceObject: {fileID: 8126858337204105584, guid: a6009e01ea7deec45b0b0ca627ef8a38, type: 3}
