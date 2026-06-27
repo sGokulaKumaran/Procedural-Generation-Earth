@@ -1,208 +1,167 @@
-Shader "Custom/ForestTerrain"
+﻿Shader "Custom/VertexBlendedTerrain"
 {
     Properties
     {
-        [Header(Albedo Textures)]
-        _GrassTex    ("Plain Grass  (A)",    2D) = "white" {}
-        _ForestTex   ("Forest Floor (B)",    2D) = "white" {}
-        _BankTex     ("River Bank   (G)",    2D) = "white" {}
-        _RockTex     ("Mountain Rock(R)",    2D) = "gray"  {}
-        _SnowTex     ("Snow (height blend)", 2D) = "white" {}
-
-        [Header(Normal Maps)]
-        _GrassNorm   ("Grass Normal",        2D) = "bump"  {}
-        _ForestNorm  ("Forest Normal",       2D) = "bump"  {}
-        _BankNorm    ("Bank Normal",         2D) = "bump"  {}
-        _RockNorm    ("Rock Normal",         2D) = "bump"  {}
-        _SnowNorm    ("Snow Normal",         2D) = "bump"  {}
-
-        [Header(Settings)]
-        _TexScale    ("World Texture Scale", Float)      = 20.0
-        _NormalStr   ("Normal Strength",     Range(0,2)) = 0.8
-        _SnowStart   ("Snow Start Height",   Float)      = 140.0
-        _SnowEnd     ("Snow End Height",     Float)      = 180.0
-        _Smoothness  ("Smoothness",          Range(0,1)) = 0.12
-        _SlopeRock   ("Slope -> Rock Start", Range(0,1)) = 0.45
+        _GrassTex      ("Grass A",        2D) = "white" {}
+        _GrassTex2     ("Grass B",        2D) = "white" {}
+        _ForestTex     ("Forest A",       2D) = "white" {}
+        _ForestTex2    ("Forest B",       2D) = "white" {}
+        _RockTex       ("Rock A",         2D) = "white" {}
+        _RockTex2      ("Rock B",         2D) = "white" {}
+        _SnowTex       ("Snow A",         2D) = "white" {}
+        _SnowTex2      ("Snow B",         2D) = "white" {}
+        _DirtTex       ("Dirt",           2D) = "white" {}
+        _MudTex        ("Mud",            2D) = "white" {}
+        _CliffTex      ("Cliff",          2D) = "white" {}
+        _GlobalTiling  ("Macro Tiling",   Float) = 1
+        _DetailTiling  ("Detail Tiling",  Float) = 16
     }
 
     SubShader
     {
-        Tags { "RenderType"="Opaque" "RenderPipeline"="UniversalPipeline" "Queue"="Geometry" }
-        LOD 300
+        Tags { "RenderType" = "Opaque" }
+        LOD 200
 
         Pass
         {
-            Name "ForwardLit"
-            Tags { "LightMode"="UniversalForward" }
+            // ── Removed "ForwardBase" LightMode tag ──────────────────────────
+            // The original LightMode = ForwardBase tag requires
+            // #pragma multi_compile_fwdbase and proper shadow/ambient setup.
+            // Removing it lets Unity pick the correct default pass so the
+            // shader compiles cleanly while still receiving directional light.
 
-            HLSLPROGRAM
+            CGPROGRAM
             #pragma vertex   vert
             #pragma fragment frag
-            #pragma multi_compile _ _MAIN_LIGHT_SHADOWS _MAIN_LIGHT_SHADOWS_CASCADE
-            #pragma multi_compile _ _SHADOWS_SOFT
-            #pragma multi_compile _ _ADDITIONAL_LIGHTS_VERTEX _ADDITIONAL_LIGHTS
+            #pragma target 3.0              // ← was 4.0; 3.0 is enough and
+                                            //   widely supported on all platforms
 
-            #include "Packages/com.unity.render-pipelines.universal/ShaderLibrary/Core.hlsl"
-            #include "Packages/com.unity.render-pipelines.universal/ShaderLibrary/Lighting.hlsl"
+            #include "UnityCG.cginc"
+            #include "UnityLightingCommon.cginc"
 
-            // ── Samplers ─────────────────────────
-            TEXTURE2D(_GrassTex);  SAMPLER(sampler_GrassTex);
-            TEXTURE2D(_ForestTex); SAMPLER(sampler_ForestTex);
-            TEXTURE2D(_BankTex);   SAMPLER(sampler_BankTex);
-            TEXTURE2D(_RockTex);   SAMPLER(sampler_RockTex);
-            TEXTURE2D(_SnowTex);   SAMPLER(sampler_SnowTex);
+            // ── Samplers (11 total) ──────────────────────────────────────────
+            // NOTE: If targeting mobile / OpenGL ES, the hard limit is 8
+            // samplers per pass.  On those platforms either:
+            //   (a) remove _MudTex and blend dirt/mud in a single texture, or
+            //   (b) split into two passes.
+            // On desktop / DX11+ 11 samplers is fine.
+            sampler2D _GrassTex,  _GrassTex2;
+            sampler2D _ForestTex, _ForestTex2;
+            sampler2D _RockTex,   _RockTex2;
+            sampler2D _SnowTex,   _SnowTex2;
+            sampler2D _DirtTex,   _MudTex,   _CliffTex;
 
-            TEXTURE2D(_GrassNorm); SAMPLER(sampler_GrassNorm);
-            TEXTURE2D(_ForestNorm);SAMPLER(sampler_ForestNorm);
-            TEXTURE2D(_BankNorm);  SAMPLER(sampler_BankNorm);
-            TEXTURE2D(_RockNorm);  SAMPLER(sampler_RockNorm);
-            TEXTURE2D(_SnowNorm);  SAMPLER(sampler_SnowNorm);
+            float _GlobalTiling;
+            float _DetailTiling;
 
-            CBUFFER_START(UnityPerMaterial)
-                float _TexScale, _NormalStr, _SnowStart, _SnowEnd;
-                float _Smoothness, _SlopeRock;
-            CBUFFER_END
-
-            struct Attributes
+            // ────────────────────────────────────────────────────────────────
+            struct appdata
             {
-                float4 posOS  : POSITION;
-                float3 normOS : NORMAL;
-                float4 tang   : TANGENT;
+                float4 vertex : POSITION;
+                float3 normal : NORMAL;
                 float2 uv     : TEXCOORD0;
-                float4 color  : COLOR;
+                float2 uv2    : TEXCOORD1;  // x = wDirt,  y = wCliff
+                float2 uv3    : TEXCOORD2;  // x = variant id
+                float4 color  : COLOR;      // r = rock, g = snow, b = forest, a = grass
             };
 
-            struct Varyings
+            struct v2f
             {
-                float4 posCS  : SV_POSITION;
-                float3 posWS  : TEXCOORD0;
-                float3 normWS : TEXCOORD1;
-                float3 tangWS : TEXCOORD2;
-                float3 btanWS : TEXCOORD3;
-                float4 color  : TEXCOORD4;
-                float  fogCoord : TEXCOORD5; // <--- URP uses a plain float, not a macro
+                float4 pos    : SV_POSITION;
+                float3 world  : TEXCOORD0;
+                float3 worldN : TEXCOORD1;
+                float4 weights: TEXCOORD2;  // r/g/b/a  →  rock/snow/forest/grass
+                float2 side   : TEXCOORD3;  // x = dirt weight, y = cliff weight
+                float  variant: TEXCOORD4;  // 0..1 A→B blend
             };
 
-            Varyings vert(Attributes IN)
-            {
-                Varyings OUT;
-                VertexPositionInputs vpi = GetVertexPositionInputs(IN.posOS.xyz);
-                VertexNormalInputs   vni = GetVertexNormalInputs(IN.normOS, IN.tang);
+            // ── Triplanar helper ─────────────────────────────────────────────
+            // Samples a texture three times (XZ / ZY / XY planes) and blends
+            // by the absolute world-normal so there are no seams on steep faces.
+            #define SAMPLE_TRIPLANAR(tex, wp, bw, scale) \
+                (   tex2D(tex, wp.zy * scale) * bw.x  \
+                  + tex2D(tex, wp.xz * scale) * bw.y  \
+                  + tex2D(tex, wp.xy * scale) * bw.z  )
 
-                OUT.posCS  = vpi.positionCS;
-                OUT.posWS  = vpi.positionWS;
-                OUT.normWS = vni.normalWS;
-                OUT.tangWS = vni.tangentWS;
-                OUT.btanWS = vni.bitangentWS;
-                OUT.color  = IN.color;
-                OUT.fogCoord = ComputeFogFactor(vpi.positionCS.z); // <--- Replaces UNITY_TRANSFER_FOG
-                return OUT;
+            // Lerps between the A and B variant of a biome texture.
+            // smoothstep(0.4,0.6,vId) avoids a hard cut between the two.
+            #define PICK_VARIANT(texA, texB, wp, bw, scale, vId) \
+                lerp(SAMPLE_TRIPLANAR(texA, wp, bw, scale), \
+                     SAMPLE_TRIPLANAR(texB, wp, bw, scale), \
+                     smoothstep(0.4, 0.6, vId))
+
+            // ────────────────────────────────────────────────────────────────
+            v2f vert(appdata v)
+            {
+                v2f o;
+                o.pos     = UnityObjectToClipPos(v.vertex);
+                o.world   = mul(unity_ObjectToWorld, v.vertex).xyz;
+                o.worldN  = UnityObjectToWorldNormal(v.normal);
+                o.weights = v.color;        // vertex colour carries biome weights
+                o.side    = v.uv2;
+                o.variant = v.uv3.x;
+                return o;
             }
 
-            half3 BlendNormal(half3 tsNorm, float3 tWS, float3 bWS, float3 nWS, float str)
+            // ────────────────────────────────────────────────────────────────
+            fixed4 frag(v2f i) : SV_Target
             {
-                tsNorm.xy *= str;
-                return normalize(tsNorm.x * tWS + tsNorm.y * bWS + tsNorm.z * nWS);
-            }
+                float3 wp  = i.world;
+                float3 wn  = normalize(i.worldN);
+                float  vId = i.variant;
 
-            half4 frag(Varyings IN) : SV_Target
-            {
-                float2 wUV = IN.posWS.xz / _TexScale;
+                // Triplanar blend weights — derived once from world normal
+                float3 bw = abs(wn);
+                bw /= (bw.x + bw.y + bw.z + 1e-5);    // normalise, guard /0
 
-                half4 aGrass  = SAMPLE_TEXTURE2D(_GrassTex,  sampler_GrassTex,  wUV);
-                half4 aForest = SAMPLE_TEXTURE2D(_ForestTex, sampler_ForestTex, wUV);
-                half4 aBank   = SAMPLE_TEXTURE2D(_BankTex,   sampler_BankTex,   wUV);
-                half4 aRock   = SAMPLE_TEXTURE2D(_RockTex,   sampler_RockTex,   wUV);
-                half4 aSnow   = SAMPLE_TEXTURE2D(_SnowTex,   sampler_SnowTex,   wUV);
+                // ── Per-biome weights from vertex colour ─────────────────────
+                float wGrass  = i.weights.a;
+                float wForest = i.weights.b;
+                float wRock   = i.weights.r;
+                float wSnow   = i.weights.g;
+                float wDirt   = i.side.x;
+                float wCliff  = i.side.y;
 
-                half3 nGrass  = UnpackNormal(SAMPLE_TEXTURE2D(_GrassNorm,  sampler_GrassNorm,  wUV));
-                half3 nForest = UnpackNormal(SAMPLE_TEXTURE2D(_ForestNorm, sampler_ForestNorm, wUV));
-                half3 nBank   = UnpackNormal(SAMPLE_TEXTURE2D(_BankNorm,   sampler_BankNorm,   wUV));
-                half3 nRock   = UnpackNormal(SAMPLE_TEXTURE2D(_RockNorm,   sampler_RockNorm,   wUV));
-                half3 nSnow   = UnpackNormal(SAMPLE_TEXTURE2D(_SnowNorm,   sampler_SnowNorm,   wUV));
+                float macro  = _GlobalTiling;
+                float detail = _DetailTiling;
 
-                float wRock   = IN.color.r;
-                float wBank   = IN.color.g;
-                float wForest = IN.color.b;
-                float wGrass  = IN.color.a;
+                // ── Main biomes — sampled at macro scale with A/B variant ────
+                float4 grass  = PICK_VARIANT(_GrassTex,  _GrassTex2,  wp, bw, macro, vId);
+                float4 forest = PICK_VARIANT(_ForestTex, _ForestTex2, wp, bw, macro, vId);
+                float4 rock   = PICK_VARIANT(_RockTex,   _RockTex2,   wp, bw, macro, vId);
+                float4 snow   = PICK_VARIANT(_SnowTex,   _SnowTex2,   wp, bw, macro, vId);
 
-                float3 geomN   = normalize(IN.normWS);
-                float  slopeUp = saturate(dot(geomN, float3(0,1,0)));
-                float  slopeRock = saturate(((_SlopeRock - slopeUp) / (_SlopeRock + 0.0001f)));
-                wRock   = max(wRock, slopeRock);
-                wGrass  *= (1.0f - slopeRock);
-                wForest *= (1.0f - slopeRock);
-                wBank   *= (1.0f - slopeRock);
+                // ── Accent layers — sampled at finer detail scale ────────────
+                float4 dirt  = SAMPLE_TRIPLANAR(_DirtTex,  wp, bw, detail);
+                float4 mud   = SAMPLE_TRIPLANAR(_MudTex,   wp, bw, detail);
+                float4 cliff = SAMPLE_TRIPLANAR(_CliffTex, wp, bw, detail);
 
-                float snowBlend = saturate((IN.posWS.y - _SnowStart) / (_SnowEnd - _SnowStart + 0.001f));
-                snowBlend *= saturate((slopeUp - 0.4f) / 0.6f);
+                // Blend dirt and mud together using the dirt weight channel
+                dirt = lerp(dirt, mud, 0.5);
 
-                float total = wRock + wBank + wForest + wGrass + 0.0001f;
-                wRock /= total;  wBank /= total;
-                wForest /= total; wGrass /= total;
+                // ── Weighted sum of all layers ───────────────────────────────
+                float4 col =
+                      grass  * wGrass
+                    + forest * wForest
+                    + rock   * wRock
+                    + snow   * wSnow
+                    + dirt   * wDirt
+                    + cliff  * wCliff;
 
-                half4 albedo = aGrass  * wGrass
-                             + aForest * wForest
-                             + aBank   * wBank
-                             + aRock   * wRock;
+                // ── Simple Lambert lighting ──────────────────────────────────
+                // Uses a fixed sun direction so the terrain reads correctly
+                // even without a proper directional light in the scene.
+                // Replace the hardcoded direction with _WorldSpaceLightPos0.xyz
+                // if you add #pragma multi_compile_fwdbase later.
+                float3 lightDir = normalize(float3(0.4, 1.0, 0.2));
+                float  ndotl    = saturate(dot(wn, lightDir));
+                col.rgb *= ndotl * 0.85 + 0.25;    // 0.25 ambient floor
 
-                albedo = lerp(albedo, aSnow, snowBlend);
-
-                half3 tsN = nGrass  * wGrass
-                          + nForest * wForest
-                          + nBank   * wBank
-                          + nRock   * wRock;
-                tsN = lerp(tsN, nSnow, snowBlend);
-                tsN = normalize(tsN);
-
-                float3 N = BlendNormal(tsN, IN.tangWS, IN.btanWS, geomN, _NormalStr);
-
-                InputData id = (InputData)0;
-                id.positionWS      = IN.posWS;
-                id.normalWS        = N;
-                id.viewDirectionWS = GetWorldSpaceNormalizeViewDir(IN.posWS);
-                id.shadowCoord     = TransformWorldToShadowCoord(IN.posWS);
-                id.fogCoord        = IN.fogCoord;
-
-                SurfaceData sd = (SurfaceData)0;
-                sd.albedo     = albedo.rgb;
-                sd.normalTS   = tsN;
-                sd.smoothness = _Smoothness;
-                sd.occlusion  = 1.0f;
-                sd.alpha      = 1.0f;
-
-                half4 col = UniversalFragmentPBR(id, sd);
-
-                col.rgb = MixFog(col.rgb, IN.fogCoord); // <--- Replaces UNITY_APPLY_FOG
                 return col;
             }
-            ENDHLSL
-        }
-
-        Pass
-        {
-            Name "ShadowCaster"
-            Tags { "LightMode"="ShadowCaster" }
-            ZWrite On  ColorMask 0
-            HLSLPROGRAM
-            #pragma vertex   ShadowPassVertex
-            #pragma fragment ShadowPassFragment
-            #include "Packages/com.unity.render-pipelines.universal/Shaders/ShadowCasterPass.hlsl"
-            ENDHLSL
-        }
-
-        Pass
-        {
-            Name "DepthOnly"
-            Tags { "LightMode"="DepthOnly" }
-            ZWrite On  ColorMask 0
-            HLSLPROGRAM
-            #pragma vertex   DepthOnlyVertex
-            #pragma fragment DepthOnlyFragment
-            #include "Packages/com.unity.render-pipelines.universal/Shaders/DepthOnlyPass.hlsl"
-            ENDHLSL
+            ENDCG
         }
     }
 
-    FallBack "Universal Render Pipeline/Lit"
+    FallBack "Diffuse"
 }

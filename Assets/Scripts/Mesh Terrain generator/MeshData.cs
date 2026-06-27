@@ -1,39 +1,42 @@
-// ============================================================
-//  MeshData.cs
-//  Holds raw vertex/triangle/UV data and assembles a Unity Mesh.
-//  32-bit index buffer lets us handle 1000x1000 (1M vertices).
-// ============================================================
-using UnityEngine;
+﻿using UnityEngine;
 
 public class MeshData
 {
     public Vector3[] vertices;
-    public int[]     triangles;
-    public Vector2[] uvs;
-    public Color[]   colors;   // vertex colours used for biome blending
+    public int[] triangles;
+    public Vector2[] uvs;        // main UV channel
+    public Vector2[] uv2;        // side channel 1: x=dirt, y=cliff
+    public Vector2[] uv3;        // side channel 2: x=variant id
+    public Color[] colors;     // R=rock, G=snow, B=forest, A=grass
+    public float[] curvature;  // 0=flat, 1=vertical
+    public int VerticesPerSide { get; }
 
-    public MeshData(int verticesPerLine)
+    public MeshData(int verticesPerSide)
     {
-        int vCount = verticesPerLine * verticesPerLine;
-        int tCount = (verticesPerLine - 1) * (verticesPerLine - 1) * 6;
+        VerticesPerSide = verticesPerSide;
+        int vCount = verticesPerSide * verticesPerSide;
+        int tCount = (verticesPerSide - 1) * (verticesPerSide - 1) * 6;
 
-        vertices  = new Vector3[vCount];
+        vertices = new Vector3[vCount];
         triangles = new int[tCount];
-        uvs       = new Vector2[vCount];
-        colors    = new Color[vCount];
+        uvs = new Vector2[vCount];
+        uv2 = new Vector2[vCount];
+        uv3 = new Vector2[vCount];
+        colors = new Color[vCount];
+        curvature = new float[vCount];
     }
 
     public Mesh CreateMesh()
     {
         Mesh mesh = new Mesh();
-
-        // REQUIRED for >65535 vertices (1000x1000 = 1,000,000 verts)
         mesh.indexFormat = UnityEngine.Rendering.IndexFormat.UInt32;
 
-        mesh.vertices  = vertices;
+        mesh.vertices = vertices;
         mesh.triangles = triangles;
-        mesh.uv        = uvs;
-        mesh.colors    = colors;
+        mesh.uv = uvs;
+        mesh.uv2 = uv2;
+        mesh.uv3 = uv3;
+        mesh.colors = colors;
 
         mesh.RecalculateNormals();
         mesh.RecalculateBounds();
