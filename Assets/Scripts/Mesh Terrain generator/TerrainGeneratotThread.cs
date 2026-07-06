@@ -47,9 +47,13 @@ public class ChunkTerrainGenerator
     // ── mountains ──
     public float MountainFreq;
     public float MountainBlend;
+    public float MidWeight = 1.0f;  // Added to resolve compiler errors
+    public float FineWeight = 1.0f; // Added to resolve compiler errors
 
     // ── region control (decides WHERE mountains / plains / valleys sit) ──
     public float RegionFrequencyMultiplier = 0.08f;
+    public float MidRegionFreqMul = 0.16f;  // Added to resolve compiler errors
+    public float FineRegionFreqMul = 0.32f; // Added to resolve compiler errors
     public float MountainRegionThreshold = 0.55f;
     public float MountainRegionSharpness = 0.74f;
     public float ValleyRegionThreshold = 0.32f;
@@ -137,19 +141,37 @@ public class ChunkTerrainGenerator
         float continent = NoiseUtility.FractalNoise(
             sx, sz, 2, BaseFrequency * 0.15f, Persistence, Lacunarity, 1000f, 1000f);
 
-        // 2. Region mask — large, slow-moving field that decides WHERE mountain
-        //    ranges / valleys / plains sit, independent of local height noise.
-        float region = NoiseUtility.FractalNoise(
-            sx, sz, 3, BaseFrequency * RegionFrequencyMultiplier, 0.5f, Lacunarity, 4000f, 4000f);
+        // 2. Layered region masks. Each mask has its own derived frequency
+        //    so the call to FractalNoise always takes exactly 8 args matching
+        //    the signature in NoiseUtility.
+        float bigRegionFreq = BaseFrequency * RegionFrequencyMultiplier;
+        float midRegionFreq = BaseFrequency * MidRegionFreqMul;
+        float fineRegionFreq = BaseFrequency * FineRegionFreqMul;
 
-        float mountainWeight = Mathf.SmoothStep(MountainRegionThreshold, MountainRegionSharpness, region);
-        float valleyWeight = Mathf.SmoothStep(ValleyRegionThreshold, ValleyRegionSharpness, region);
+        float bigRegion = NoiseUtility.FractalNoise(
+            sx, sz, 3, bigRegionFreq, 0.5f, Lacunarity, 4000f, 4000f);
 
-        // 3. Plains algorithm — gentle rolling hills, organic domain-warped fBm
+        float midRegion = NoiseUtility.FractalNoise(
+            sx, sz, 2, midRegionFreq, 0.5f, Lacunarity, 8000f, 8000f);
+
+        float fineRegion = NoiseUtility.FractalNoise(
+            sx, sz, 2, fineRegionFreq, 0.5f, Lacunarity, 12000f, 12000f);
+
+        // 2a. Big-region gate.
+        float bigMountainW = Mathf.SmoothStep(MountainRegionThreshold, MountainRegionSharpness, bigRegion);
+        float valleyWeight = Mathf.SmoothStep(ValleyRegionThreshold, ValleyRegionSharpness, bigRegion);
+
+        // 2b. Mid mask gated by big region.
+        float midPeakW = Mathf.SmoothStep(0.45f, 0.75f, midRegion) * bigMountainW;
+
+        // 2c. Fine mask: foothill ridges, remapped to 0..1.3.
+        float foothillW = Mathf.Clamp01(fineRegion - 0.35f) * 2f;
+
+        // 3. Plains
         float plains = NoiseUtility.DomainWarpedNoise(
             sx, sz, Octaves, BaseFrequency, Persistence, Lacunarity, 0f, 0f, 40f);
 
-        // 4. Mountain algorithm — ridged multifractal peaks on a warped foothill base
+        // 4. Mountain
         float mountainBase = NoiseUtility.DomainWarpedNoise(
             sx, sz, Octaves, MountainFreq * 0.5f, Persistence, Lacunarity, 2500f, 2500f, 50f);
         float ridges = NoiseUtility.RidgeNoise(
@@ -157,17 +179,22 @@ public class ChunkTerrainGenerator
         float mountain = Mathf.Lerp(mountainBase, ridges, 0.7f);
         mountain = Mathf.Pow(Mathf.Clamp01(mountain), Exponent);
 
-        // 5. Valley algorithm — winding low channels carved through plains/foothills
+        // 5. Valley
         float valleyField = NoiseUtility.FractalNoise(
             sx, sz, 3, BaseFrequency * 0.3f, 0.5f, Lacunarity, 7000f, 7000f);
-        float valleyCarve = 1f - Mathf.Abs(valleyField - 0.5f) * 2f; // ridge-shaped channel mask
+        float valleyCarve = 1f - Mathf.Abs(valleyField - 0.5f) * 2f;
         valleyCarve = Mathf.Pow(Mathf.Clamp01(valleyCarve), 3f) * valleyWeight;
 
-        // 6. Blend plains vs mountain by region weight, then carve valleys in
-        float terrain = Mathf.Lerp(plains, mountain, mountainWeight * MountainBlend);
+        // 6. Layered blend
+        float terrain = plains;
+        terrain = Mathf.Lerp(terrain, mountain, bigMountainW * MountainBlend);
+        terrain = Mathf.Lerp(terrain, mountain * 1.15f, midPeakW * MidWeight * MountainBlend);
+        terrain += foothillW * FineWeight * bigMountainW * 0.25f;
+
+        // 7. Carve valleys
         terrain -= valleyCarve * ValleyDepth;
 
-        // 7. Continental bias on top
+        // 8. Continental bias
         float combined = continent * ContinentInfluence + terrain * (1f - ContinentInfluence);
         return Mathf.Clamp01(combined);
     }

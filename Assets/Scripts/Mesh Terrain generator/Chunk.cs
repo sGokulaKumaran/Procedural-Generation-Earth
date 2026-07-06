@@ -10,17 +10,24 @@ public class Chunk : MonoBehaviour
     public int resolutionTier;
     public int verticesPerSide;
     public float worldSize;
-    public bool wantsCollider;
+    public bool wantsCollider;        // (kept for back-compat; not used by the new flow)
 
     // Bumped every time this (pooled) chunk instance is (re)assigned to a coordinate.
     // A background generation job captures the token at schedule time; if the token no
-    // longer matches when the job completes, the chunk has since been reused for something
-    // else and the result is discarded instead of being applied to the wrong coordinate.
+    // longer matches when the job completes, the chunk has since been reused for
+    // something else and the result is discarded instead of being applied to the
+    // wrong coordinate.
     public int generationToken;
+
+    // Single source of truth: "is a MeshCollider.sharedMesh currently assigned?"
+    // The new ChunkManager.SyncActiveColliders() reads this every frame to detect
+    // when a chunk's desired collider state (in/out of player radius) has diverged
+    // from reality, and reconciles it.
+    public bool hasCollider;
 
     [Header("Spawn / Despawn Feel")]
     public float fadeDuration = 0.35f;
-    public float riseHeight = 15f;
+    public float riseHeight = 20f;          // bumped a bit since heightMult is higher now
     public float maxSpawnStagger = 0.12f;
 
     public enum State { Idle, Generating, MeshReady, Active, Unloading }
@@ -48,10 +55,6 @@ public class Chunk : MonoBehaviour
         if (mc == null) mc = GetComponent<MeshCollider>();
     }
 
-    /// <summary>
-    /// Assigns this chunk instance to a new world coordinate and bumps its generation
-    /// token. Call this whenever a pooled chunk starts representing a different coordinate.
-    /// </summary>
     public int BeginUse(Vector2Int newCoord, Vector3 worldPosition)
     {
         CacheComponents();
@@ -62,13 +65,6 @@ public class Chunk : MonoBehaviour
         return generationToken;
     }
 
-    /// <summary>
-    /// Builds and assigns the visual mesh (geometry, normals, UVs, vertex colors).
-    /// Collider assignment is a separate step (ApplyCollider) so it can be rate-limited
-    /// independently — MeshCollider baking is one of the most expensive main-thread
-    /// operations here and distant/low-detail chunks often don't need one at all.
-    /// Returns the built Mesh on success (pass it to ApplyCollider if needed), or null on failure.
-    /// </summary>
     public Mesh ApplyVisualMesh(MeshData data)
     {
         CacheComponents();
@@ -88,6 +84,8 @@ public class Chunk : MonoBehaviour
 
         if (mf.sharedMesh != null)
         {
+            // Visual mesh is per-chunk-instance; safe to destroy on replace.
+            // The collider has its own (cached) mesh and is NOT touched here.
             if (Application.isPlaying) Destroy(mf.sharedMesh);
             else DestroyImmediate(mf.sharedMesh);
             mf.sharedMesh = null;
@@ -118,21 +116,18 @@ public class Chunk : MonoBehaviour
     }
 
     /// <summary>
-    /// Assigns (or clears) the collider mesh. Pass null to explicitly skip collision for
-    /// this chunk (e.g. far/low-detail tiers that don't need physics at all).
+    /// Assigns (or clears) the collider mesh. Pass null to explicitly remove
+    /// the collider (e.g. far chunks outside colliderRadius). Keeps
+    /// hasCollider in sync as the single source of truth.
     /// </summary>
     public void ApplyCollider(Mesh mesh)
     {
         CacheComponents();
         if (mc == null) return;
         mc.sharedMesh = mesh;
+        hasCollider = (mesh != null);
     }
 
-    /// <summary>
-    /// Plays the "rise up out of the ground" reveal so newly streamed-in terrain doesn't
-    /// hard-pop into existence. A small random stagger keeps a whole ring of chunks from
-    /// rising in perfect unison.
-    /// </summary>
     public void PlaySpawnReveal()
     {
         if (fadeRoutine != null) StopCoroutine(fadeRoutine);
@@ -144,8 +139,15 @@ public class Chunk : MonoBehaviour
         if (maxSpawnStagger > 0f)
             yield return new WaitForSeconds(Random.Range(0f, maxSpawnStagger));
 
-        bool colliderWasEnabled = mc != null && mc.enabled;
-        if (mc != null) mc.enabled = false;
+        // IMPORTANT: the collider is NO LONGER disabled during the rise.
+        // The previous version did:
+        //     if (mc != null) mc.enabled = false;
+        //     ... animate ...
+        //     if (mc != null) mc.enabled = colliderWasEnabled;
+        // which made the player fall through the chunk for the 0.35s reveal.
+        // The MeshCollider and the MeshFilter share this GameObject's transform,
+        // so they rise together. Leaving the collider enabled keeps the player
+        // grounded on the rising terrain.
 
         Vector3 target = restingPosition;
         Vector3 start = target + Vector3.down * riseHeight;
@@ -162,16 +164,9 @@ public class Chunk : MonoBehaviour
         }
 
         transform.position = target;
-        if (mc != null) mc.enabled = colliderWasEnabled;
         fadeRoutine = null;
     }
 
-    /// <summary>
-    /// Plays a "sink back into the ground" animation, then hands the chunk back via
-    /// onComplete so the caller can deactivate/pool it. The GameObject stays active for
-    /// the duration of the animation (a coroutine can't run on a disabled object) and is
-    /// only actually disabled by the caller once this finishes.
-    /// </summary>
     public void PlayDespawnAndPool(System.Action<Chunk> onComplete)
     {
         if (fadeRoutine != null) StopCoroutine(fadeRoutine);
@@ -180,6 +175,8 @@ public class Chunk : MonoBehaviour
 
     IEnumerator DespawnRoutine(System.Action<Chunk> onComplete)
     {
+        // During the despawn sink it's fine (and cheaper) to disable the collider
+        // — the chunk is leaving the world.
         if (mc != null) mc.enabled = false;
 
         Vector3 start = transform.position;
@@ -195,6 +192,9 @@ public class Chunk : MonoBehaviour
             yield return null;
         }
 
+        // Restore enabled state — Hide() will null out the sharedMesh next anyway.
+        if (mc != null) mc.enabled = true;
+
         fadeRoutine = null;
         onComplete?.Invoke(this);
     }
@@ -209,6 +209,7 @@ public class Chunk : MonoBehaviour
         }
         if (mr != null) mr.enabled = false;
         if (mc != null) mc.sharedMesh = null;
+        hasCollider = false;
     }
 
     public void Reset()
@@ -224,7 +225,7 @@ public class Chunk : MonoBehaviour
         resolutionTier = 0;
         state = State.Idle;
         wantsCollider = false;
-        generationToken++; // invalidate any in-flight async result tied to this instance
+        generationToken++;
 
         if (mf != null && mf.sharedMesh != null)
         {
@@ -234,5 +235,6 @@ public class Chunk : MonoBehaviour
         }
         if (mc != null) mc.sharedMesh = null;
         if (mr != null) mr.enabled = false;
+        hasCollider = false;
     }
 }

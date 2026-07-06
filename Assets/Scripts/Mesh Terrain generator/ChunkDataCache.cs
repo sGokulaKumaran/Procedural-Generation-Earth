@@ -1,106 +1,188 @@
+﻿// =============================================================================
+// ChunkDataCache.cs
+//
+// Thread-safe LRU cache that stores one canonical (full-resolution) heightmap,
+// flatness map, and normal array per chunk coordinate.
+//
+// Why this exists:
+//   ChunkTerrainGenerator produces per-chunk data at the SAME resolution for
+//   every chunk (fullVerts). ChunkMeshBuilder can then resample that data to
+//   any LOD tier (near/mid/far) with pure array math, so once a chunk is in
+//   the cache, rebuilding its mesh at a different LOD is essentially free
+//   and safe to do on the main thread.
+//
+//   Without the cache, every LOD tier change would force a full background
+//   regeneration from noise — expensive and laggy.
+//
+// Why an LRU (not a plain Dictionary):
+//   A finite world is huge; we can't hold every coordinate's full-res data
+//   in memory. The LRU evicts the least-recently-used entries past a
+//   configurable capacity (ChunkManager sets it to (2*farRadius+1)^2 so the
+//   working set never thrashes). When an evicted coordinate is needed again,
+//   it just re-runs the background generation (rare, only when the player
+//   re-visits a distant area or when live-editing).
+//
+// Thread-safety:
+//   The cache is read by the main thread (ChunkManager.RequestChunkMesh and
+//   SyncActiveColliders) AND written by background threads
+//   (ChunkGenerationScheduler worker -> ChunkTerrainGenerator). Every public
+//   method is locked on `gate`. TryGet returns a reference to the internal
+//   arrays, so callers must treat them as read-only.
+// =============================================================================
+
 using System.Collections.Generic;
 using UnityEngine;
 
-/// <summary>
-/// Caches the canonical (always full-resolution) terrain data for chunk coordinates.
-///
-/// Replaces LRUHeightmapCache. Two bugs are fixed here:
-///  1. Thread safety: the old cache had no locking at all, yet Put() was called from a
-///     background generation thread while Get() was called from the main thread. Concurrent
-///     Dictionary/LinkedList access with no synchronization can corrupt internal state.
-///     Every entry point here is behind a single lock.
-///  2. Resolution tracking: the old cache stored whatever resolution a given tier happened
-///     to generate at, but callers assumed it was always full resolution when bilinear
-///     sampling it � silently reading wrong array indices when that wasn't true. Every entry
-///     here records its own resolution, and this cache is only ever fed full-resolution data
-///     in the first place (see ChunkManager), so downstream sampling is always safe.
-/// </summary>
 public class ChunkDataCache
 {
-    public class Entry
+    /// <summary>
+    /// Max number of coordinate entries to keep. Set by ChunkManager
+    /// (auto-sized to the working set in Start). When the cache is full,
+    /// the least-recently-used entry is evicted.
+    /// </summary>
+    public int capacity = 256;
+
+    // ── backing data ──
+    // Indexed by coord hash. Each dictionary's value lives for as long as the
+    // entry is in the cache, so TryGet returns refs to arrays that the caller
+    // must NOT modify.
+    readonly Dictionary<Vector2Int, float[]> heights = new Dictionary<Vector2Int, float[]>();
+    readonly Dictionary<Vector2Int, float[]> flatness = new Dictionary<Vector2Int, float[]>();
+    readonly Dictionary<Vector2Int, Vector3[]> normals = new Dictionary<Vector2Int, Vector3[]>();
+    readonly Dictionary<Vector2Int, int> resolutions = new Dictionary<Vector2Int, int>();
+
+    // ── LRU bookkeeping ──
+    // Touch order: head = most recently used, tail = least recently used.
+    readonly LinkedList<Vector2Int> lruList = new LinkedList<Vector2Int>();
+    readonly Dictionary<Vector2Int, LinkedListNode<Vector2Int>> lruNodes =
+        new Dictionary<Vector2Int, LinkedListNode<Vector2Int>>();
+
+    readonly object gate = new object();
+
+    /// <summary>
+    /// Read-only entry returned by TryGet. Treat all array fields as
+    /// read-only — mutating them will break any other chunk that's looking
+    /// at the same cached coordinate.
+    /// </summary>
+    public struct Entry
     {
-        public Vector2Int coord;
-        public int resolution;
         public float[] height;
         public float[] flatness;
         public Vector3[] normals;
+        public int resolution;
     }
-
-    public int capacity = 96;
-
-    readonly object gate = new object();
-    readonly LinkedList<Entry> lru = new LinkedList<Entry>();
-    readonly Dictionary<Vector2Int, LinkedListNode<Entry>> index = new Dictionary<Vector2Int, LinkedListNode<Entry>>();
 
     public bool TryGet(Vector2Int coord, out Entry entry)
     {
         lock (gate)
         {
-            if (index.TryGetValue(coord, out var node))
+            if (heights.TryGetValue(coord, out var h) &&
+                flatness.TryGetValue(coord, out var f) &&
+                normals.TryGetValue(coord, out var n) &&
+                resolutions.TryGetValue(coord, out var res))
             {
-                lru.Remove(node);
-                lru.AddFirst(node);
-                entry = node.Value;
+                // Touch LRU position — most recent at head.
+                if (lruNodes.TryGetValue(coord, out var node))
+                {
+                    lruList.Remove(node);
+                    lruList.AddFirst(node);
+                }
+                else
+                {
+                    // Defensive: entry data exists but LRU node was lost.
+                    // Re-insert at head.
+                    lruNodes[coord] = lruList.AddFirst(coord);
+                }
+
+                entry = new Entry
+                {
+                    height = h,
+                    flatness = f,
+                    normals = n,
+                    resolution = res,
+                };
                 return true;
             }
-        }
-        entry = null;
-        return false;
-    }
 
-    public bool Contains(Vector2Int coord)
-    {
-        lock (gate)
-        {
-            return index.ContainsKey(coord);
+            entry = default;
+            return false;
         }
     }
 
     public void Put(Vector2Int coord, int resolution, float[] height, float[] flatness, Vector3[] normals)
     {
+        if (height == null || flatness == null || normals == null) return;
+
         lock (gate)
         {
-            if (index.TryGetValue(coord, out var existing))
+            // If this coord is already cached, replace in place and bump to MRU.
+            if (heights.ContainsKey(coord))
             {
-                existing.Value.resolution = resolution;
-                existing.Value.height = height;
-                existing.Value.flatness = flatness;
-                existing.Value.normals = normals;
-                lru.Remove(existing);
-                lru.AddFirst(existing);
+                heights[coord] = height;
+                this.flatness[coord] = flatness;
+                this.normals[coord] = normals;
+                resolutions[coord] = resolution;
+
+                if (lruNodes.TryGetValue(coord, out var node))
+                {
+                    lruList.Remove(node);
+                    lruList.AddFirst(node);
+                }
+                else
+                {
+                    lruNodes[coord] = lruList.AddFirst(coord);
+                }
                 return;
             }
 
-            var entry = new Entry
-            {
-                coord = coord,
-                resolution = resolution,
-                height = height,
-                flatness = flatness,
-                normals = normals,
-            };
-            var node = new LinkedListNode<Entry>(entry);
-            lru.AddFirst(node);
-            index[coord] = node;
+            // New entry — insert and evict from LRU tail if over capacity.
+            heights[coord] = height;
+            this.flatness[coord] = flatness;
+            this.normals[coord] = normals;
+            resolutions[coord] = resolution;
+            lruNodes[coord] = lruList.AddFirst(coord);
 
-            while (lru.Count > capacity)
-            {
-                var old = lru.Last;
-                lru.RemoveLast();
-                index.Remove(old.Value.coord);
-            }
+            EvictIfOverCapacity();
         }
     }
 
-    public void Invalidate(Vector2Int coord)
+    void EvictIfOverCapacity()
+    {
+        int cap = capacity < 1 ? 1 : capacity;
+        while (lruList.Count > cap)
+        {
+            var tail = lruList.Last;
+            if (tail == null) break;
+            Vector2Int evicted = tail.Value;
+            lruList.RemoveLast();
+            lruNodes.Remove(evicted);
+            heights.Remove(evicted);
+            flatness.Remove(evicted);
+            normals.Remove(evicted);
+            resolutions.Remove(evicted);
+        }
+    }
+
+    /// <summary>
+    /// Drops every cached coordinate. Used by the live-edit system in
+    /// ChunkManager when the user changes noise parameters in the inspector —
+    /// all existing data was generated with the old parameters and is now
+    /// stale, so we wipe and let the streaming system regenerate.
+    ///
+    /// Thread-safe: callable from the main thread; will not corrupt in-flight
+    /// background workers because the worker's Put() will simply re-insert
+    /// into a now-empty cache (the data it puts is up to date).
+    /// </summary>
+    public void Clear()
     {
         lock (gate)
         {
-            if (index.TryGetValue(coord, out var node))
-            {
-                lru.Remove(node);
-                index.Remove(coord);
-            }
+            heights.Clear();
+            flatness.Clear();
+            normals.Clear();
+            resolutions.Clear();
+            lruList.Clear();
+            lruNodes.Clear();
         }
     }
 }
