@@ -87,4 +87,21 @@ public static class NoiseUtility
         }
         return total / maxVal;
     }
+
+    /// <summary>
+    /// Deterministic integer hash -> float offset. Used to derive stable, reproducible
+    /// per-seed sample offsets WITHOUT calling UnityEngine.Random at runtime (Random.value
+    /// gives a different result every call, which was the source of the texture-variant
+    /// "reshuffle on reload" bug). Same (seed, salt) pair always returns the same value.
+    /// </summary>
+    public static float SeedOffset(int seed, int salt)
+    {
+        unchecked
+        {
+            int h = seed * 73856093 ^ salt * 19349663;
+            h = (h << 13) ^ h;
+            int n = (h * (h * h * 15731 + 789221) + 1376312589) & 0x7fffffff;
+            return (n / 1073741824.0f) * 1000f; // ~0..2000 range
+        }
+    }
 }

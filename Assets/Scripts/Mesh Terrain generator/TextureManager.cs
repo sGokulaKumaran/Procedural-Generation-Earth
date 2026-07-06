@@ -33,7 +33,7 @@ public class BiomeTextureSet
     [Range(0f, 1f)] public float valleyFlatnessThreshold = 0.70f;
     [Range(0f, 1f)] public float mudFlatnessThreshold = 0.85f;
     [Range(0f, 1f)] public float cliffCurvatureThreshold = 0.55f;
-    [Range(0f, 1f)] public float variantNoiseScale = 0.0035f;
+    [Range(0.0001f, 0.02f)] public float variantNoiseScale = 0.0035f;
 }
 
 public class TextureManager : MonoBehaviour
@@ -55,12 +55,9 @@ public class TextureManager : MonoBehaviour
     //    B = forest       weight
     //    A = grass        weight
     //
-    //  Variant weights (3 extra floats) are passed via a UV2 trick:
-    //    UV2.x = dirt     weight
-    //    UV2.y = cliff    weight
-    //    UV2.z = variant  id  (0..1 used by the shader to pick a tile)
-    //  We actually use a 2nd UV channel; meshData.uv2 must be set up
-    //  in MeshData. Add it now if you haven't.
+    //  Variant weights are passed via UV2/UV3:
+    //    UV2.x = dirt   weight       UV2.y = cliff weight
+    //    UV3.x = variant id (0..1, picks between texture variants in the shader)
     // ----------------------------------------------------------
 
     public void ForceRebindShader()
@@ -80,18 +77,43 @@ public class TextureManager : MonoBehaviour
         }
     }
 
+    /// <summary>
+    /// Blends biome/texture weights for one chunk's mesh.
+    ///
+    /// IMPORTANT: this now samples the "variant" macro-pattern noise using the vertex's
+    /// TRUE WORLD position (chunkOriginX/Z + local offset), not the raw local grid index.
+    /// The old version scaled the local index x/z directly, which — combined with every
+    /// chunk covering the same local index range 0..verticesPerSide — meant every chunk got
+    /// an identical texture-variant pattern (part of the repeating-tile look). It also called
+    /// UnityEngine.Random.value fresh on every invocation, so the pattern reshuffled every
+    /// time a chunk regenerated (LOD swap, cache rebuild), causing visible popping. Both are
+    /// fixed by using world-space coordinates plus a fixed, deterministic seed offset that's
+    /// the same for the whole world and never changes between calls.
+    ///
+    /// maxHeight replaces a previously hardcoded "120" used to normalize height into 0..1 —
+    /// that silently broke biome banding whenever heightMult was changed from the inspector.
+    ///
+    /// This method only touches plain structs, arrays and Mathf/Color math, so it's safe to
+    /// call from a background thread (used by ChunkMeshBuilder during first-time generation).
+    /// </summary>
     public void ApplyBiomeBlending(
-     MeshData meshData,
-     int verticesPerSide,
-     float[] heightMap,
-     float[] flatnessMap)
+        MeshData meshData,
+        int verticesPerSide,
+        float chunkSize,
+        float chunkOriginX,
+        float chunkOriginZ,
+        float[] heightMap,
+        float[] flatnessMap,
+        float maxHeight,
+        float seedOffsetX,
+        float seedOffsetZ)
     {
         if (meshData == null || meshData.colors == null) return;
         if (heightMap == null || flatnessMap == null) return;
         if (heightMap.Length != meshData.colors.Length) return;
 
-        float seedX = Random.value * 1000f;
-        float seedZ = Random.value * 1000f;
+        float worldStep = chunkSize / (verticesPerSide - 1);
+        float safeMaxHeight = Mathf.Max(1f, maxHeight);
 
         int vi = 0;
         for (int z = 0; z < verticesPerSide; z++)
@@ -101,12 +123,16 @@ public class TextureManager : MonoBehaviour
                 float h = heightMap[vi];
                 float f = flatnessMap[vi];
                 float curv = meshData.curvature[vi];
-                float h01 = Mathf.Clamp01(h / 120f);
+                float h01 = Mathf.Clamp01(h / safeMaxHeight);
 
-                // macro variant id 0..1
+                float worldX = chunkOriginX + x * worldStep;
+                float worldZ = chunkOriginZ + z * worldStep;
+
+                // macro variant id 0..1 — world-space + fixed seed offset, so it's
+                // continuous across chunk borders and stable across regenerations.
                 float variant = Mathf.PerlinNoise(
-                    x * textures.variantNoiseScale + seedX,
-                    z * textures.variantNoiseScale + seedZ);
+                    (worldX + seedOffsetX) * textures.variantNoiseScale,
+                    (worldZ + seedOffsetZ) * textures.variantNoiseScale);
 
                 float wGrass = 0f;
                 float wForest = 0f;
@@ -174,13 +200,8 @@ public class TextureManager : MonoBehaviour
                     wCliff /= total;
                 }
 
-                // pack into colour: R=rock, G=snow, B=forest, A=grass
                 meshData.colors[vi] = new Color(wRock, wSnow, wForest, wGrass);
-
-                // uv2 = (dirt, cliff) — Vector2
                 meshData.uv2[vi] = new Vector2(wDirt, wCliff);
-
-                // uv3 = (variant, unused) — Vector2
                 meshData.uv3[vi] = new Vector2(variant, 0f);
 
                 vi++;
@@ -188,12 +209,10 @@ public class TextureManager : MonoBehaviour
         }
     }
 
-
     public void ConfigureMaterial()
     {
         if (terrainMaterial == null) return;
 
-        // variants
         SetTex("_GrassTex", textures.grassA);
         SetTex("_GrassTex2", textures.grassB);
         SetTex("_GrassBright", textures.grassBright);

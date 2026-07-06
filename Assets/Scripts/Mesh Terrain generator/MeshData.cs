@@ -3,6 +3,7 @@
 public class MeshData
 {
     public Vector3[] vertices;
+    public Vector3[] normals;  // seam-correct normals computed by ChunkTerrainGenerator
     public int[] triangles;
     public Vector2[] uvs;        // main UV channel
     public Vector2[] uv2;        // side channel 1: x=dirt, y=cliff
@@ -18,6 +19,7 @@ public class MeshData
         int tCount = (verticesPerSide - 1) * (verticesPerSide - 1) * 6;
 
         vertices = new Vector3[vCount];
+        normals = new Vector3[vCount];
         triangles = new int[tCount];
         uvs = new Vector2[vCount];
         uv2 = new Vector2[vCount];
@@ -38,8 +40,12 @@ public class MeshData
         mesh.uv3 = uv3;
         mesh.colors = colors;
 
-        mesh.RecalculateNormals();
+        // Normals are supplied directly (computed from a padded world-space gradient in
+        // ChunkTerrainGenerator) instead of calling RecalculateNormals(), which only sees
+        // triangles inside this one chunk and produces visible lighting seams at borders.
+        mesh.normals = normals;
         mesh.RecalculateBounds();
+        mesh.RecalculateTangents();
         return mesh;
     }
 }
