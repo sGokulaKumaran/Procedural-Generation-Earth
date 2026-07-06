@@ -28,7 +28,7 @@ public class WorldGeneratorThreaded
         HeightMap = new float[vCount];
         FlatnessMap = new float[vCount];
 
-        // ── 1. heights + flatness ──
+        // heights + flatness
         int vi = 0;
         for (int z = 0; z < n; z++)
         {
@@ -43,7 +43,7 @@ public class WorldGeneratorThreaded
             }
         }
 
-        // ── 2. vertex positions + uvs ──
+        // vertex positions + uvs
         vi = 0;
         for (int z = 0; z < n; z++)
         {
@@ -58,7 +58,7 @@ public class WorldGeneratorThreaded
             }
         }
 
-        // ── 3. curvature from neighbor height differences ──
+        // curvature from neighbor height differences
         for (int z = 0; z < n; z++)
         {
             for (int x = 0; x < n; x++)
@@ -77,7 +77,7 @@ public class WorldGeneratorThreaded
             }
         }
 
-        // ── 4. triangles ──
+        //triangles ──
         int tris = 0;
         for (int z = 0; z < n - 1; z++)
         {
