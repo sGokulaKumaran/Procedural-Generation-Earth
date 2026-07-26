@@ -198,4 +198,4 @@ public class ChunkTerrainGenerator
         float combined = continent * ContinentInfluence + terrain * (1f - ContinentInfluence);
         return Mathf.Clamp01(combined);
     }
-}
+} 

@@ -132,6 +132,7 @@ MonoBehaviour:
   worldSize: 0
   wantsCollider: 1
   generationToken: 0
+  hasCollider: 0
   fadeDuration: 0.35
   riseHeight: 15
   maxSpawnStagger: 0.12

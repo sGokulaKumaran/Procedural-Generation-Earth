@@ -175,9 +175,9 @@ MonoBehaviour:
   m_Name: 
   m_EditorClassIdentifier: Assembly-CSharp::PlayerMovement
   walkSpeed: 5
-  sprintSpeed: 8
+  sprintSpeed: 40
   crouchSpeed: 2
-  gravity: -9.81
+  gravity: -40
   playerCamera: {fileID: 286460729}
   crouchHeight: 1
   groundCheck: {fileID: 1381857178}
@@ -477,25 +477,26 @@ MonoBehaviour:
   midVerts: 128
   farVerts: 64
   colliderRadius: 2
+  colliderVerts: 64
   finiteWorld: 1
   worldRadiusInChunks: 40
   heightmapCacheSize: 32
   seed: 42
   baseFrequency: 0.0018
-  octaves: 7
+  octaves: 4
   persistence: 0.48
   lacunarity: 2.1
-  heightMult: 120
-  exponent: 1.6
-  mountainBlend: 0.55
-  mountainFreq: 0.0022
+  heightMult: 320
+  exponent: 2.2
+  mountainBlend: 1
+  mountainFreq: 0.0018
   regionFrequencyMultiplier: 0.08
-  mountainRegionThreshold: 0.55
-  mountainRegionSharpness: 0.74
-  valleyRegionThreshold: 0.32
-  valleyRegionSharpness: 0.14
-  valleyDepth: 0.16
-  continentInfluence: 0.3
+  mountainRegionThreshold: 0.52
+  mountainRegionSharpness: 0.78
+  valleyRegionThreshold: 0.28
+  valleyRegionSharpness: 0.1
+  valleyDepth: 0.22
+  continentInfluence: 0.45
   chunkPrefab: {fileID: 2297979722032563156, guid: 71ea17ad14d763442b2d9c181a931975, type: 3}
   terrainMaterial: {fileID: 2100000, guid: 08590eb6d8748f0458b2cb0cba2a64de, type: 2}
   textureManager: {fileID: 2043438985}
@@ -506,7 +507,10 @@ MonoBehaviour:
   maxConcurrentGenerations: 3
   maxChunkSpawnsPerFrame: 2
   maxMeshAppliesPerFrame: 1
-  maxColliderBakesPerFrame: 1
+  maxColliderOpsPerFrame: 2
+  initialChunksPerFrame: 3
+  liveEdit: 1
+  liveEditApplyInterval: 0.15
   verboseLogging: 0
 --- !u!4 &2043438984
 Transform:

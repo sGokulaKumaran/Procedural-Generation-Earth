@@ -86,11 +86,11 @@ Material:
         m_Scale: {x: 1, y: 1}
         m_Offset: {x: 0, y: 0}
     - _ForestTex:
-        m_Texture: {fileID: 2800000, guid: 84a0082a671cb3642819cc69b89b9353, type: 3}
+        m_Texture: {fileID: 2800000, guid: bbbe84de1429e3849a49f7c49a1bec52, type: 3}
         m_Scale: {x: 1, y: 1}
         m_Offset: {x: 0, y: 0}
     - _ForestTex2:
-        m_Texture: {fileID: 2800000, guid: c2e975e8a074dff45aee75e580a54344, type: 3}
+        m_Texture: {fileID: 2800000, guid: bbbe84de1429e3849a49f7c49a1bec52, type: 3}
         m_Scale: {x: 1, y: 1}
         m_Offset: {x: 0, y: 0}
     - _GrassBright:
@@ -102,11 +102,11 @@ Material:
         m_Scale: {x: 1, y: 1}
         m_Offset: {x: 0, y: 0}
     - _GrassTex:
-        m_Texture: {fileID: 2800000, guid: fca5ccfbfb5acfc49bda94d2353c2268, type: 3}
+        m_Texture: {fileID: 2800000, guid: bbbe84de1429e3849a49f7c49a1bec52, type: 3}
         m_Scale: {x: 1, y: 1}
         m_Offset: {x: 0, y: 0}
     - _GrassTex2:
-        m_Texture: {fileID: 2800000, guid: aae5d0c409b2960409c4797c4932938b, type: 3}
+        m_Texture: {fileID: 2800000, guid: bbbe84de1429e3849a49f7c49a1bec52, type: 3}
         m_Scale: {x: 1, y: 1}
         m_Offset: {x: 0, y: 0}
     - _MainTex:
@@ -122,7 +122,7 @@ Material:
         m_Scale: {x: 1, y: 1}
         m_Offset: {x: 0, y: 0}
     - _MudTex:
-        m_Texture: {fileID: 2800000, guid: fddb796191afb2947993970b4084592b, type: 3}
+        m_Texture: {fileID: 2800000, guid: bbbe84de1429e3849a49f7c49a1bec52, type: 3}
         m_Scale: {x: 1, y: 1}
         m_Offset: {x: 0, y: 0}
     - _OcclusionMap:
@@ -138,8 +138,8 @@ Material:
         m_Scale: {x: 1, y: 1}
         m_Offset: {x: 0, y: 0}
     - _RockTex:
-        m_Texture: {fileID: 2800000, guid: b54d9404dd9a99743a7dbcca3a111e4a, type: 3}
-        m_Scale: {x: 1, y: 1}
+        m_Texture: {fileID: 2800000, guid: bbbe84de1429e3849a49f7c49a1bec52, type: 3}
+        m_Scale: {x: 1.69, y: 1}
         m_Offset: {x: 0, y: 0}
     - _RockTex2:
         m_Texture: {fileID: 2800000, guid: 58780efb29e14bd4d8015aa66cf60699, type: 3}
